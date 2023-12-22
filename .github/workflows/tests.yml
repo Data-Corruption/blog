@@ -1,0 +1,32 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'blog.go'
+      - 'blog_test.go'
+      - '.github/workflows/tests.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'blog.go'
+      - 'blog_test.go'
+      - '.github/workflows/tests.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v4
+      with:
+        go-version-file: 'go.mod'
+    - name: Test
+      run: go test -v -v -covermode=count -coverprofile=coverage.txt ./...
+    - name: Upload coverage reports to Codecov
+      uses: codecov/codecov-action@v3
+      env:
+        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
