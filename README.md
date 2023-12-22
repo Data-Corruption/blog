@@ -1,4 +1,4 @@
-# Blog · [![Tests](https://github.com/Data-Corruption/blog/actions/workflows/tests.yml/badge.svg)](https://github.com/Data-Corruption/blog/actions/workflows/tests.yml) [![codecov](https://codecov.io/github/Data-Corruption/blog/graph/badge.svg?token=HGC6QI86EG)](https://codecov.io/github/Data-Corruption/blog) ![Go Report](https://img.shields.io/badge/Go%20Report-A-green.svg?style=flat)
+# Blog · [![Tests](https://github.com/Data-Corruption/blog/actions/workflows/tests.yml/badge.svg)](https://github.com/Data-Corruption/blog/actions/workflows/tests.yml) [![codecov](https://codecov.io/github/Data-Corruption/blog/graph/badge.svg?token=HGC6QI86EG)](https://codecov.io/github/Data-Corruption/blog) ![Go Report](https://img.shields.io/badge/go%20report-A+-brightgreen.svg?style=flat)
 
 Blog is a small logging package for Go applications. It's designed to be simple, lightweight, and easy to integrate, while still offering the robust functionality needed for most real-world production scenarios.
 
