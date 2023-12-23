@@ -1,5 +1,25 @@
 # Changelog for "blog" project
 
+## [v0.1.1-beta] - 2023-12-21
+
+### Added
+- **Tests:** Added tests for initialization, console out, file out, and automatic flushing.
+
+### Changed
+- **Channels:** Moved the channels out of the logger struct and into the var group for easier passing of logger in testing.
+
+### Fixed
+- **SetFlushInterval:** Fixed the restart logic in the main loop used to apply changes to the flush interval.
+
+### Deprecated
+- None in this release.
+
+### Removed
+- None in this release.
+
+### Security
+- None in this release.
+
 ## [v0.1.0-beta] - 2023-12-21
 
 ### Added
