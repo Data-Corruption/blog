@@ -26,7 +26,18 @@ const (
 var (
 	// instance is the singleton instance of the logger.
 	instance *logger = nil
+	// run channels
+	manualFlushChan       chan struct{}      = make(chan struct{})
+	logMsgChan            chan message       = make(chan message, defaultMaxLogBufSize)
+	updateLevel           chan LogLevel      = make(chan LogLevel)
+	updateUseConsole      chan bool          = make(chan bool)
+	updateMaxWriteBufSize chan int           = make(chan int)
+	updateMaxFileSize     chan int           = make(chan int)
+	updateFlushInterval   chan time.Duration = make(chan time.Duration)
+	updateDirPath         chan string        = make(chan string)
 	// used for testing
+	reqStateChan chan struct{}  = make(chan struct{})
+	resStateChan chan logger    = make(chan logger)
 	runExitChan  chan struct{}  = make(chan struct{})
 	runWaitGroup sync.WaitGroup = sync.WaitGroup{}
 )
@@ -71,15 +82,6 @@ type logger struct {
 	dirPath         string
 	latestPath      string // dirPath/latest.log
 	writeBuffer     bytes.Buffer
-	manualFlushChan chan struct{}
-	logMsgChan      chan message
-	// update channels
-	updateLevel           chan LogLevel
-	updateUseConsole      chan bool
-	updateMaxWriteBufSize chan int
-	updateMaxFileSize     chan int
-	updateFlushInterval   chan time.Duration
-	updateDirPath         chan string
 }
 
 // Exported Functions =========================================================
@@ -93,22 +95,14 @@ func Init(dirPath string, level LogLevel) error {
 	}
 
 	instance = &logger{
-		level:                 level,
-		useConsole:            false,
-		dirPath:               "",
-		maxWriteBufSize:       defaultMaxWriteBufSize,
-		maxFileSize:           defaultMaxFileSize,
-		flushInterval:         defaultFlushInterval,
-		latestPath:            "",
-		writeBuffer:           bytes.Buffer{},
-		manualFlushChan:       make(chan struct{}),
-		logMsgChan:            make(chan message, defaultMaxLogBufSize),
-		updateLevel:           make(chan LogLevel),
-		updateUseConsole:      make(chan bool),
-		updateMaxWriteBufSize: make(chan int),
-		updateMaxFileSize:     make(chan int),
-		updateFlushInterval:   make(chan time.Duration),
-		updateDirPath:         make(chan string),
+		level:           level,
+		useConsole:      false,
+		dirPath:         "",
+		maxWriteBufSize: defaultMaxWriteBufSize,
+		maxFileSize:     defaultMaxFileSize,
+		flushInterval:   defaultFlushInterval,
+		latestPath:      "",
+		writeBuffer:     bytes.Buffer{},
 	}
 
 	err := instance.setDirPath(dirPath)
@@ -146,43 +140,43 @@ func LogLevelFromString(levelStr string) (LogLevel, bool) {
 }
 
 // Flush manually flushes the log write buffer.
-func Flush() { instance.manualFlushChan <- struct{}{} }
+func Flush() { manualFlushChan <- struct{}{} }
 
 // SetLevel sets the log level.
-func SetLevel(level LogLevel) { instance.updateLevel <- level }
+func SetLevel(level LogLevel) { updateLevel <- level }
 
 // SetUseConsole sets whether or not to log to the console.
-func SetUseConsole(use bool) { instance.updateUseConsole <- use }
+func SetUseConsole(use bool) { updateUseConsole <- use }
 
 // SetMaxWriteBufSize sets the maximum size of the log write buffer.
-func SetMaxWriteBufSize(size int) { instance.updateMaxWriteBufSize <- size }
+func SetMaxWriteBufSize(size int) { updateMaxWriteBufSize <- size }
 
 // SetMaxFileSize sets the maximum size of the log file. When the log file reaches
 // this size, it is renamed to the current timestamp and a new log file is created.
-func SetMaxFileSize(size int) { instance.updateMaxFileSize <- size }
+func SetMaxFileSize(size int) { updateMaxFileSize <- size }
 
 // SetDirPath sets the directory path for the log files. If dirPath is empty, the
 // current working directory is used.
-func SetDirPath(path string) { instance.updateDirPath <- path }
+func SetDirPath(path string) { updateDirPath <- path }
 
 // SetFlushInterval sets the interval at which the log write buffer is automatically
 // flushed to the log file.
-func SetFlushInterval(d time.Duration) { instance.updateFlushInterval <- d }
+func SetFlushInterval(d time.Duration) { updateFlushInterval <- d }
 
 // Error logs an error message.
-func Error(msg string) { instance.logMsgChan <- message{ERROR, 0, time.Now(), msg} }
+func Error(msg string) { logMsgChan <- message{ERROR, 0, time.Now(), msg} }
 
 // Warn logs a warning message.
-func Warn(msg string) { instance.logMsgChan <- message{WARN, 0, time.Now(), msg} }
+func Warn(msg string) { logMsgChan <- message{WARN, 0, time.Now(), msg} }
 
 // Info logs an info message.
-func Info(msg string) { instance.logMsgChan <- message{INFO, 0, time.Now(), msg} }
+func Info(msg string) { logMsgChan <- message{INFO, 0, time.Now(), msg} }
 
 // Debug logs a debug message.
-func Debug(msg string) { instance.logMsgChan <- message{DEBUG, 0, time.Now(), msg} }
+func Debug(msg string) { logMsgChan <- message{DEBUG, 0, time.Now(), msg} }
 
 // Fatal logs a fatal message and exits with the given exit code.
-func Fatal(msg string, c int) { instance.logMsgChan <- message{FATAL, c, time.Now(), msg} }
+func Fatal(msg string, c int) { logMsgChan <- message{FATAL, c, time.Now(), msg} }
 
 // ======== Unexported Functions ========
 
@@ -341,44 +335,60 @@ func (l *logger) flush() {
 
 // run is the main loop for the logger.
 func (l *logger) run() {
+	var ticker *time.Ticker = time.NewTicker(l.flushInterval)
+	defer ticker.Stop()
+	shouldRestart := false
+
 	for {
-		ticker := time.NewTicker(l.flushInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
+		if shouldRestart {
+			ticker.Stop()
+			ticker = time.NewTicker(l.flushInterval)
+			shouldRestart = false
+		}
+		select {
+		case <-ticker.C:
+			l.flush()
+		case <-manualFlushChan:
+			l.flush()
+		case msg := <-logMsgChan:
+			l.handleMessage(msg)
+			if msg.level == FATAL {
 				l.flush()
-			case <-l.manualFlushChan:
-				l.flush()
-			case msg := <-l.logMsgChan:
-				l.handleMessage(msg)
-				if msg.level == FATAL {
-					l.flush()
-					os.Exit(1)
-				}
-			case level := <-l.updateLevel:
-				l.level = level
-			case useConsole := <-l.updateUseConsole:
-				l.useConsole = useConsole
-			case maxWriteBufSize := <-l.updateMaxWriteBufSize:
-				l.maxWriteBufSize = maxWriteBufSize
-			case maxFileSize := <-l.updateMaxFileSize:
-				l.maxFileSize = maxFileSize
-			case flushInterval := <-l.updateFlushInterval:
-				l.flushInterval = flushInterval
-				break
-			case dirPath := <-l.updateDirPath:
-				err := l.setDirPath(dirPath)
-				if err != nil {
-					l.useConsole = true
-					l.dirPath = ""
-				}
-			case <-runExitChan:
-				runWaitGroup.Done()
-				return
+				os.Exit(1)
 			}
+		case level := <-updateLevel:
+			l.level = level
+		case useConsole := <-updateUseConsole:
+			l.useConsole = useConsole
+		case maxWriteBufSize := <-updateMaxWriteBufSize:
+			l.maxWriteBufSize = maxWriteBufSize
+		case maxFileSize := <-updateMaxFileSize:
+			l.maxFileSize = maxFileSize
+		case flushInterval := <-updateFlushInterval:
+			l.flushInterval = flushInterval
+			shouldRestart = true
+		case dirPath := <-updateDirPath:
+			err := l.setDirPath(dirPath)
+			if err != nil {
+				l.useConsole = true
+				l.dirPath = ""
+			}
+		case <-reqStateChan:
+			resStateChan <- *l
+		case <-runExitChan:
+			runWaitGroup.Done()
+			return
 		}
 	}
+}
+
+// Test Related ===============================================================
+
+// getCopyOfInstance is used for testing. It returns a copy of the current logger instance.
+// The purpose of this is to allow reading state without blocking the run goroutine.
+func getCopyOfInstance() logger {
+	reqStateChan <- struct{}{}
+	return <-resStateChan
 }
 
 // reset is used for testing. It shuts down the run goroutine and resets all variables.
@@ -389,6 +399,17 @@ func reset() {
 	close(runExitChan)
 	runWaitGroup.Wait()
 	instance = nil
+	// reset run channels and wait group
+	manualFlushChan = make(chan struct{})
+	logMsgChan = make(chan message, defaultMaxLogBufSize)
+	updateLevel = make(chan LogLevel)
+	updateUseConsole = make(chan bool)
+	updateMaxWriteBufSize = make(chan int)
+	updateMaxFileSize = make(chan int)
+	updateFlushInterval = make(chan time.Duration)
+	updateDirPath = make(chan string)
+	reqStateChan = make(chan struct{})
+	resStateChan = make(chan logger)
 	runExitChan = make(chan struct{})
 	runWaitGroup = sync.WaitGroup{}
 }

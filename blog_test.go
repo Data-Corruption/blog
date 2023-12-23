@@ -64,6 +64,21 @@ func stripTimestamp(line string) (string, error) {
 	return line[firstComma+1+secondComma+1:], nil
 }
 
+// latestContainsData returns true if the latest log file exists and is not empty, false otherwise.
+func latestContainsData() bool {
+	// Check if the latest log file exists.
+	if _, err := os.Stat(filepath.Join(tempDir, "latest.log")); err != nil {
+		return false
+	}
+
+	// Check if the latest log file is empty.
+	info, err := os.Stat(filepath.Join(tempDir, "latest.log"))
+	if err != nil {
+		return false
+	}
+	return info.Size() != 0
+}
+
 // Tests ======================================================================
 
 func TestLogLevelFromString(t *testing.T) {
@@ -170,14 +185,70 @@ func TestConsoleOutput(t *testing.T) {
 	}
 }
 
-/*
 func TestAutoFlush(t *testing.T) {
 	normalStartup()
 	defer cleanupTempDir()
 
-	//
+	// log something
+	Info("This is a test")
+
+	// sleep for half of defaultFlushInterval
+	time.Sleep(defaultFlushInterval / 2)
+
+	// check if flushed too early
+	if latestContainsData() {
+		t.Errorf("Should not have flushed yet")
+	}
+
+	// sleep for the other half of defaultFlushInterval
+	time.Sleep(defaultFlushInterval)
+
+	// the file should contain data now
+	if !latestContainsData() {
+		t.Errorf("Should have flushed by now")
+	}
 }
 
+func TestSetFlushInterval(t *testing.T) {
+	normalStartup()
+	defer cleanupTempDir()
+
+	newFlushInterval := 1 * time.Second
+
+	// set flush interval to 1 second
+	SetFlushInterval(newFlushInterval)
+
+	// sleep for 100ms to allow for channel to be processed
+	time.Sleep(100 * time.Millisecond)
+
+	// check if flush interval was set correctly
+	copyOfInstance := getCopyOfInstance()
+	log.Printf("copyOfInstance.flushInterval = %v", copyOfInstance.flushInterval)
+	if copyOfInstance.flushInterval != newFlushInterval {
+		t.Errorf("Flush interval = %v; want %v", copyOfInstance.flushInterval, newFlushInterval)
+	}
+
+	// log something
+	Info("This is a test")
+
+	// sleep for half of newFlushInterval
+	time.Sleep(newFlushInterval / 2)
+
+	// check if flushed too early
+	if latestContainsData() {
+		t.Errorf("Should not have flushed yet")
+	}
+
+	// sleep for the other half of newFlushInterval
+	time.Sleep(newFlushInterval)
+
+	// the file should contain data now
+	if !latestContainsData() {
+		t.Errorf("Should have flushed by now")
+	}
+}
+
+/*
 func TestManualFlush(t *testing.T) {
 	normalStartup()
 	defer cleanupTempDir()
