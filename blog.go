@@ -17,10 +17,10 @@ import (
 
 // default constants define the standard behavior and limits of the logger.
 const (
-	defaultMaxLogBufSize   = 255
-	defaultMaxWriteBufSize = 4096
-	defaultMaxFileSize     = 1024 * 1024 * 1024 // 1 GB
-	defaultFlushInterval   = 5 * time.Second
+	defaultMaxMsgChanBufSize = 255
+	defaultMaxWriteBufSize   = 4096               // 4 KB
+	defaultMaxFileSize       = 1024 * 1024 * 1024 // 1 GB
+	defaultFlushInterval     = 5 * time.Second
 )
 
 var (
@@ -28,7 +28,7 @@ var (
 	instance *logger = nil
 	// run channels
 	manualFlushChan       chan struct{}      = make(chan struct{})
-	logMsgChan            chan message       = make(chan message, defaultMaxLogBufSize)
+	logMsgChan            chan message       = make(chan message, defaultMaxMsgChanBufSize)
 	updateLevel           chan LogLevel      = make(chan LogLevel)
 	updateUseConsole      chan bool          = make(chan bool)
 	updateMaxWriteBufSize chan int           = make(chan int)
@@ -94,6 +94,9 @@ func Init(dirPath string, level LogLevel) error {
 		return AlreadyInitializedError{}
 	}
 
+	// disable the default timestamp
+	log.SetFlags(0)
+
 	instance = &logger{
 		level:           level,
 		useConsole:      false,
@@ -125,6 +128,8 @@ func LogLevelFromString(levelStr string) (LogLevel, bool) {
 	case "NONE":
 		return NONE, true
 	case "ERROR":
+		return ERROR, true
+	case "ERR":
 		return ERROR, true
 	case "WARN":
 		return WARN, true
@@ -176,7 +181,7 @@ func Info(msg string) { logMsgChan <- message{INFO, 0, time.Now(), msg} }
 func Debug(msg string) { logMsgChan <- message{DEBUG, 0, time.Now(), msg} }
 
 // Fatal logs a fatal message and exits with the given exit code.
-func Fatal(msg string, c int) { logMsgChan <- message{FATAL, c, time.Now(), msg} }
+func Fatal(msg string, exitCode int) { logMsgChan <- message{FATAL, exitCode, time.Now(), msg} }
 
 // ======== Unexported Functions ========
 
@@ -291,7 +296,7 @@ func (l *logger) handleFlushError(err error) {
 	l.useConsole = true
 	l.dirPath = ""
 	// print the remaining write buffer to the console
-	log.Print(l.writeBuffer)
+	log.Print(l.writeBuffer.String())
 	l.writeBuffer.Reset()
 }
 
@@ -401,7 +406,7 @@ func reset() {
 	instance = nil
 	// reset run channels and wait group
 	manualFlushChan = make(chan struct{})
-	logMsgChan = make(chan message, defaultMaxLogBufSize)
+	logMsgChan = make(chan message, defaultMaxMsgChanBufSize)
 	updateLevel = make(chan LogLevel)
 	updateUseConsole = make(chan bool)
 	updateMaxWriteBufSize = make(chan int)
