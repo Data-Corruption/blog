@@ -1,5 +1,25 @@
 # Changelog for "blog" project
 
+## [v0.1.2-beta] - 2023-12-24
+
+### Added
+- **Tests:** Added more tests
+
+### Changed
+- **README:** Improved the readme
+
+### Fixed
+- **handleFlushError:** Fixed an issue with the remaining buffer not being properly logged to console.
+
+### Deprecated
+- None in this release.
+
+### Removed
+- None in this release.
+
+### Security
+- None in this release.
+
 ## [v0.1.1-beta] - 2023-12-21
 
 ### Added
