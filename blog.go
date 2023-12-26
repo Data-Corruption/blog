@@ -258,8 +258,12 @@ func (l *logger) handleMessage(msg message) {
 	if !(msg.level != NONE && (msg.level == FATAL || msg.level <= l.level)) {
 		return
 	}
+	// create the message prefix
+	prefix := msg.timestamp.Format("[2006-01-02,15-04-05,") + msg.level.toString() + "] "
+	// make sure the prefix is at least 28 characters long
+	prefix = padString(prefix, 28)
 	// Format the message
-	msg.content = fmt.Sprintf("%s,%s: %s\n", msg.timestamp.Format("2006-01-02,15-04-05"), msg.level.toString(), msg.content)
+	msg.content = prefix + msg.content + "\n"
 	// If a file path is set, write the message to the log file
 	if l.dirPath != "" {
 		l.writeBuffer.WriteString(msg.content)
