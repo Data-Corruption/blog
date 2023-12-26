@@ -244,7 +244,10 @@ func TestConsoleOutput(t *testing.T) {
 	// redirect output back to stdout
 	log.SetOutput(os.Stdout)
 
-	expected := "INFO: This is a test\n"
+	// print string with timestamp
+	log.Print("Actual: \"" + buf.String() + "\"")
+
+	expected := "INFO]  This is a test\n"
 	if actual != expected {
 		t.Errorf("Console output = \"%s\"; want \"%s\"", actual, expected)
 	}
@@ -293,7 +296,7 @@ func TestHandleFlushError(t *testing.T) {
 	}
 
 	// check if the log message was logged to console
-	expected = "INFO: This is a test\n"
+	expected = "INFO]  This is a test\n"
 	if actual != expected {
 		t.Errorf("Console output = \"%s\"; want \"%s\"", actual, expected)
 	}

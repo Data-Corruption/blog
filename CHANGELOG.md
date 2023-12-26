@@ -1,5 +1,26 @@
 # Changelog for "blog" project
 
+## [v0.1.3-beta] - 2023-12-24
+
+### Added
+- None in this release.
+
+### Changed
+- None in this release.
+
+### Fixed
+- **Typo:** fixed a typo in the readme
+- **Formatting:** messages now use padding and look a little better imo
+
+### Deprecated
+- None in this release.
+
+### Removed
+- None in this release.
+
+### Security
+- None in this release.
+
 ## [v0.1.2-beta] - 2023-12-24
 
 ### Added
