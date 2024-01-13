@@ -34,7 +34,7 @@ import "github.com/Data-Corruption/blog"
 
 func main() {
     // gracefully flush remaining buffer before an exit.
-    defer blog.Flush()
+    defer blog.SyncFlush(0)
     // init logger to write in current working directory at level INFO
     if err := blog.Init("", blog.INFO); err != nil {
         blog.Error("Falling back to console due to out dir issue: " + err.Error())
@@ -50,7 +50,7 @@ Advanced Example:
 import "github.com/Data-Corruption/blog"
 
 func main() {
-  defer blog.Flush()
+  defer blog.SyncFlush(0)
 
   // Convert a string to a LogLevel
   level, ok := blog.LogLevelFromString("Info")

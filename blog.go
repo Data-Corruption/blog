@@ -27,7 +27,7 @@ var (
 	// instance is the singleton instance of the logger.
 	instance *logger = nil
 	// run channels
-	manualFlushChan       chan struct{}      = make(chan struct{})
+	flushChan             chan struct{}      = make(chan struct{})
 	logMsgChan            chan message       = make(chan message, defaultMaxMsgChanBufSize)
 	updateLevel           chan LogLevel      = make(chan LogLevel)
 	updateUseConsole      chan bool          = make(chan bool)
@@ -35,6 +35,10 @@ var (
 	updateMaxFileSize     chan int           = make(chan int)
 	updateFlushInterval   chan time.Duration = make(chan time.Duration)
 	updateDirPath         chan string        = make(chan string)
+	// sync flush stuff
+	syncFlushChan  chan struct{} = make(chan struct{})
+	syncFlushDone  chan struct{} = make(chan struct{})
+	syncFlushMutex sync.Mutex    = sync.Mutex{}
 	// used for testing
 	reqStateChan chan struct{}  = make(chan struct{})
 	resStateChan chan logger    = make(chan logger)
@@ -145,7 +149,22 @@ func LogLevelFromString(levelStr string) (LogLevel, bool) {
 }
 
 // Flush manually flushes the log write buffer.
-func Flush() { manualFlushChan <- struct{}{} }
+func Flush() { flushChan <- struct{}{} }
+
+// SyncFlush synchronously flushes the log write buffer and blocks until the flush is complete or the timeout is reached. If timeout is 0, SyncFlush blocks indefinitely.
+func SyncFlush(timeout time.Duration) {
+	syncFlushMutex.Lock()
+	defer syncFlushMutex.Unlock()
+	syncFlushChan <- struct{}{}
+	if timeout == 0 {
+		<-syncFlushDone
+	} else {
+		select {
+		case <-syncFlushDone:
+		case <-time.After(timeout):
+		}
+	}
+}
 
 // SetLevel sets the log level.
 func SetLevel(level LogLevel) { updateLevel <- level }
@@ -357,8 +376,11 @@ func (l *logger) run() {
 		select {
 		case <-ticker.C:
 			l.flush()
-		case <-manualFlushChan:
+		case <-flushChan:
 			l.flush()
+		case <-syncFlushChan:
+			l.flush()
+			syncFlushDone <- struct{}{}
 		case msg := <-logMsgChan:
 			l.handleMessage(msg)
 			if msg.level == FATAL {
@@ -409,7 +431,7 @@ func reset() {
 	runWaitGroup.Wait()
 	instance = nil
 	// reset run channels and wait group
-	manualFlushChan = make(chan struct{})
+	flushChan = make(chan struct{})
 	logMsgChan = make(chan message, defaultMaxMsgChanBufSize)
 	updateLevel = make(chan LogLevel)
 	updateUseConsole = make(chan bool)
@@ -417,6 +439,9 @@ func reset() {
 	updateMaxFileSize = make(chan int)
 	updateFlushInterval = make(chan time.Duration)
 	updateDirPath = make(chan string)
+	syncFlushChan = make(chan struct{})
+	syncFlushDone = make(chan struct{})
+	syncFlushMutex = sync.Mutex{}
 	reqStateChan = make(chan struct{})
 	resStateChan = make(chan logger)
 	runExitChan = make(chan struct{})

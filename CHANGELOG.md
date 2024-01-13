@@ -1,5 +1,25 @@
 # Changelog for "blog" project
 
+## [v0.2.0-beta] - 2024-01-13
+
+### Added
+- **SyncFlush:** added a SyncFlush method that only returns after the flush has been completed. This is particularly useful for cleanup situations.
+
+### Changed
+- None in this release.
+
+### Fixed
+- None in this release.
+
+### Deprecated
+- None in this release.
+
+### Removed
+- None in this release.
+
+### Security
+- None in this release.
+
 ## [v0.1.3-beta] - 2023-12-24
 
 ### Added

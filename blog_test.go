@@ -3,21 +3,19 @@ package blog
 import (
 	"bytes"
 	"errors"
-	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
-	"regexp"
 	"time"
 )
 
 // Variables ==================================================================
 
 var (
-	tempDir    = ""
-	captureBuf bytes.Buffer
+	tempDir = ""
 )
 
 // Helper functions ===========================================================
@@ -26,7 +24,7 @@ var (
 func createTempDir() {
 	// Create a temporary directory.
 	var err error
-	tempDir, err = ioutil.TempDir("", "example")
+	tempDir, err = os.MkdirTemp("", "example")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -69,7 +67,7 @@ func stripTimestamp(line string) (string, error) {
 func stripFirstLine(s string) (string, error) {
 	// Find the index of the first newline character.
 	newlineIndex := strings.Index(s, "\n")
-	
+
 	// If there's no newline, return an error.
 	if newlineIndex == -1 {
 		return "", errors.New("no newline character in string")
@@ -367,7 +365,6 @@ func TestSetFlushInterval(t *testing.T) {
 	}
 }
 
-
 func TestManualFlush(t *testing.T) {
 	normalStartup()
 	defer cleanupTempDir()
@@ -377,12 +374,31 @@ func TestManualFlush(t *testing.T) {
 
 	// sleep for 100ms to allow for channel to be processed
 	time.Sleep(100 * time.Millisecond)
-	
+
 	// manually flush
 	Flush()
 
 	// sleep for 100ms to allow for channel to be processed and file to be written
 	time.Sleep(100 * time.Millisecond)
+
+	// the file should contain data now
+	if !latestContainsData() {
+		t.Errorf("Should have flushed by now")
+	}
+}
+
+func TestSyncFlush(t *testing.T) {
+	normalStartup()
+	defer cleanupTempDir()
+
+	// log something
+	Info("This is a test")
+
+	// sleep for 100ms to allow for channel to be processed
+	time.Sleep(100 * time.Millisecond)
+
+	// manually sync flush
+	SyncFlush(0)
 
 	// the file should contain data now
 	if !latestContainsData() {
@@ -408,5 +424,3 @@ func TestMaxWriteSize(t *testing.T) {
 		t.Errorf("Should have flushed by now")
 	}
 }
-
-// test
