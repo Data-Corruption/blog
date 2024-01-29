@@ -1,5 +1,25 @@
 # Changelog for "blog" project
 
+## [v0.2.1-beta] - 2024-01-13
+
+### Added
+- **dualOutTest:** added test for dual output (console and file)
+
+### Changed
+- **shouldLog:** moved should log calculation into a dedicated function to allow easier testing of it
+
+### Fixed
+- None in this release.
+
+### Deprecated
+- None in this release.
+
+### Removed
+- None in this release.
+
+### Security
+- None in this release.
+
 ## [v0.2.0-beta] - 2024-01-13
 
 ### Added

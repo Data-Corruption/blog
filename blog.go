@@ -272,9 +272,18 @@ func (l *logger) setDirPath(path string) error {
 	return nil
 }
 
+func (l *logger) shouldLog(level LogLevel) bool {
+	if level == FATAL {
+		return true
+	} else if level == NONE {
+		return false
+	}
+	return level <= l.level
+}
+
 func (l *logger) handleMessage(msg message) {
 	// Check if the message should be logged given the current log level
-	if !(msg.level != NONE && (msg.level == FATAL || msg.level <= l.level)) {
+	if !l.shouldLog(msg.level) {
 		return
 	}
 	// create the message prefix

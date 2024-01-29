@@ -200,6 +200,32 @@ func TestInit(t *testing.T) {
 	}
 }
 
+func TestShouldLog(t *testing.T) {
+	normalStartup()
+	defer cleanupTempDir()
+
+	SetLevel(WARN)
+	time.Sleep(100 * time.Millisecond)
+
+	tests := []struct {
+		level    LogLevel
+		expected bool
+	}{
+		{NONE, false},
+		{ERROR, true},
+		{WARN, true},
+		{INFO, false},
+		{DEBUG, false},
+		{FATAL, true},
+	}
+	for _, test := range tests {
+		actual := instance.shouldLog(test.level)
+		if actual != test.expected {
+			t.Errorf("shouldLog(%v) = %v; want %v", test.level, actual, test.expected)
+		}
+	}
+}
+
 // TestGenLogPath tests the genLogPath function. It should return a path with the following format: <tempDir>/YYYY-MM-DD_HH-MM-SS.log
 func TestGenLogPath(t *testing.T) {
 	normalStartup()
@@ -222,15 +248,12 @@ func TestConsoleOutput(t *testing.T) {
 
 	// buffer to capture output
 	var buf bytes.Buffer
-
-	// set output to buffer
 	log.SetOutput(&buf)
 
-	// test
+	// set useConsole to true and log something
 	SetUseConsole(true)
+	time.Sleep(100 * time.Millisecond)
 	Info("This is a test")
-
-	// sleep for 100ms to allow for channel to be processed
 	time.Sleep(100 * time.Millisecond)
 
 	// get output, strip timestamp
@@ -319,6 +342,54 @@ func TestAutoFlush(t *testing.T) {
 	}
 
 	// sleep for the other half of defaultFlushInterval
+	time.Sleep(defaultFlushInterval)
+
+	// the file should contain data now
+	if !latestContainsData() {
+		t.Errorf("Should have flushed by now")
+	}
+}
+
+func TestDualOutput(t *testing.T) {
+	normalStartup()
+	defer cleanupTempDir()
+
+	// buffer to capture output
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+
+	// set useConsole to true and log something
+	SetUseConsole(true)
+	time.Sleep(100 * time.Millisecond)
+	Info("This is a test")
+	time.Sleep(100 * time.Millisecond)
+
+	// get output, strip timestamp
+	actual, err := stripTimestamp(buf.String())
+	if err != nil {
+		t.Errorf("Error stripping timestamp: %v", err)
+	}
+
+	// redirect output back to stdout
+	log.SetOutput(os.Stdout)
+
+	// print string with timestamp
+	log.Print("Actual: \"" + buf.String() + "\"")
+
+	expected := "INFO]  This is a test\n"
+	if actual != expected {
+		t.Errorf("Console output = \"%s\"; want \"%s\"", actual, expected)
+	}
+
+	// sleep for half of defaultFlushInterval
+	time.Sleep(defaultFlushInterval / 2)
+
+	// check if flushed too early
+	if latestContainsData() {
+		t.Errorf("Should not have flushed yet")
+	}
+
+	// sleep for the full defaultFlushInterval
 	time.Sleep(defaultFlushInterval)
 
 	// the file should contain data now
