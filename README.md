@@ -53,8 +53,8 @@ func main() {
   defer blog.SyncFlush(0)
 
   // Convert a string to a LogLevel
-  level, ok := blog.LogLevelFromString("Info")
-  if !ok {
+  level, err := blog.LogLevelFromString("Info")
+  if err != nil {
     // handle unknown string level
   }
 

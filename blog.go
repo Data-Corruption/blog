@@ -122,7 +122,7 @@ func Init(dirPath string, level LogLevel) error {
 	return err
 }
 
-// LogLevelFromString converts a string to a LogLevel, returning an error if the string is invalid.
+// LogLevelFromString converts a string to a LogLevel, returning ErrInvalidLogLevel if the string is invalid.
 func LogLevelFromString(levelStr string) (LogLevel, error) {
 	switch strings.ToUpper(levelStr) {
 	case "NONE":
