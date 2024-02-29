@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -92,29 +93,62 @@ func latestContainsData() bool {
 	return info.Size() != 0
 }
 
+// getCopyOfInstance returns a copy of the current logger instance.
+// The purpose of this is to allow reading state without blocking the run goroutine.
+func getCopyOfInstance() logger {
+	reqStateChan <- struct{}{}
+	return <-resStateChan
+}
+
+// reset shuts down the run goroutine and resets all variables.
+func reset() {
+	if instance == nil {
+		return
+	}
+	close(runExitChan)
+	runWaitGroup.Wait()
+	instance = nil
+	// reset run channels and wait group
+	flushChan = make(chan struct{})
+	logMsgChan = make(chan message, defaultMaxMsgChanBufSize)
+	updateLevel = make(chan LogLevel)
+	updateUseConsole = make(chan bool)
+	updateMaxWriteBufSize = make(chan int)
+	updateMaxFileSize = make(chan int)
+	updateFlushInterval = make(chan time.Duration)
+	updateDirPath = make(chan string)
+	syncFlushChan = make(chan struct{})
+	syncFlushDone = make(chan struct{})
+	syncFlushMutex = sync.Mutex{}
+	reqStateChan = make(chan struct{})
+	resStateChan = make(chan logger)
+	runExitChan = make(chan struct{})
+	runWaitGroup = sync.WaitGroup{}
+}
+
 // Tests ======================================================================
 
 func TestLogLevelFromString(t *testing.T) {
 	tests := []struct {
 		input         string
 		expectedLevel LogLevel
-		expectedOk    bool
+		expectedErr   error
 	}{
-		{"none", NONE, true},
-		{"NONE", NONE, true},
-		{"ERROR", ERROR, true},
-		{"erR", ERROR, true},
-		{"WARN", WARN, true},
-		{"INFO", INFO, true},
-		{"DEBUG", DEBUG, true},
-		{"FATAL", FATAL, true},
-		{"invalid", NONE, false},
-		{"", NONE, false},
+		{"none", NONE, nil},
+		{"NONE", NONE, nil},
+		{"ERROR", ERROR, nil},
+		{"erR", ERROR, nil},
+		{"WARN", WARN, nil},
+		{"INFO", INFO, nil},
+		{"DEBUG", DEBUG, nil},
+		{"FATAL", FATAL, nil},
+		{"invalid", NONE, ErrInvalidLogLevel},
+		{"", NONE, ErrInvalidLogLevel},
 	}
 	for _, test := range tests {
 		level, ok := LogLevelFromString(test.input)
-		if level != test.expectedLevel || ok != test.expectedOk {
-			t.Errorf("LogLevelFromString(%s) = %v, %v; want %v, %v", test.input, level, ok, test.expectedLevel, test.expectedOk)
+		if level != test.expectedLevel || ok != test.expectedErr {
+			t.Errorf("LogLevelFromString(%s) = %v, %v; want %v, %v", test.input, level, ok, test.expectedLevel, test.expectedErr)
 		}
 	}
 }
@@ -171,8 +205,8 @@ func TestInvalidInitArgs(t *testing.T) {
 	// Test invalid directory argument.
 	invalidDirArg := filepath.Join(tempDir, "invalid")
 	err := Init(invalidDirArg, INFO)
-	switch err.(type) {
-	case InvalidPathError:
+	switch err {
+	case ErrInvalidPath:
 		break
 	default:
 		t.Errorf("Init(%s, INFO) = %v; want InvalidPathError", invalidDirArg, err)
@@ -180,8 +214,8 @@ func TestInvalidInitArgs(t *testing.T) {
 
 	// Test re-initialization.
 	err = Init(tempDir, INFO)
-	switch err.(type) {
-	case AlreadyInitializedError:
+	switch err {
+	case ErrAlreadyInitialized:
 		break
 	default:
 		t.Errorf("Init(%s, INFO) = %v; want AlreadyInitializedError", tempDir, err)

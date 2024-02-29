@@ -1,5 +1,14 @@
 # Changelog for "blog" project
 
+## [v0.2.2-beta] - 2024-01-13
+
+### Added
+- **ErrInvalidLogLevel:** LogLevelFromString() now returns this error as its second return value instead of an ok bool
+
+### Deprecated
+- **AlreadyInitializedError:** changed to Err
+- **InvalidPathError:** changed to Err
+
 ## [v0.2.1-beta] - 2024-01-13
 
 ### Added

@@ -24,6 +24,10 @@ const (
 )
 
 var (
+	// public errors
+	ErrAlreadyInitialized = fmt.Errorf("blog: already initialized")
+	ErrInvalidLogLevel    = fmt.Errorf("blog: invalid log level")
+	ErrInvalidPath        = fmt.Errorf("blog: invalid path")
 	// instance is the singleton instance of the logger.
 	instance *logger = nil
 	// run channels
@@ -60,14 +64,6 @@ const (
 	FATAL
 )
 
-// AlreadyInitializedError indicates Init has already been called.
-type AlreadyInitializedError struct{}
-
-// InvalidPathError occurs when a provided directory path is invalid or inaccessible.
-type InvalidPathError struct {
-	Path string
-}
-
 // message represents a single log entry.
 type message struct {
 	level     LogLevel
@@ -92,10 +88,10 @@ type logger struct {
 
 // Init sets up the logger with the specified directory path and log level.
 // It returns an error if called more than once or if the directory path is invalid.
-// On error, logging falls back to the console. See AlreadyInitializedError and InvalidPathError.
+// On error, logging falls back to the console. See ErrAlreadyInitialized and ErrInvalidPath.
 func Init(dirPath string, level LogLevel) error {
 	if instance != nil {
-		return AlreadyInitializedError{}
+		return ErrAlreadyInitialized
 	}
 
 	// disable the default timestamp
@@ -116,7 +112,7 @@ func Init(dirPath string, level LogLevel) error {
 	if err != nil {
 		instance.useConsole = true
 		instance.dirPath = ""
-		err = InvalidPathError{dirPath}
+		err = ErrInvalidPath
 	}
 
 	// start the run goroutine
@@ -126,25 +122,25 @@ func Init(dirPath string, level LogLevel) error {
 	return err
 }
 
-// LogLevelFromString converts a string to a LogLevel, returning false if the string is unrecognized.
-func LogLevelFromString(levelStr string) (LogLevel, bool) {
+// LogLevelFromString converts a string to a LogLevel, returning an error if the string is invalid.
+func LogLevelFromString(levelStr string) (LogLevel, error) {
 	switch strings.ToUpper(levelStr) {
 	case "NONE":
-		return NONE, true
+		return NONE, nil
 	case "ERROR":
-		return ERROR, true
+		return ERROR, nil
 	case "ERR":
-		return ERROR, true
+		return ERROR, nil
 	case "WARN":
-		return WARN, true
+		return WARN, nil
 	case "INFO":
-		return INFO, true
+		return INFO, nil
 	case "DEBUG":
-		return DEBUG, true
+		return DEBUG, nil
 	case "FATAL":
-		return FATAL, true
+		return FATAL, nil
 	default:
-		return NONE, false
+		return NONE, ErrInvalidLogLevel
 	}
 }
 
@@ -209,14 +205,6 @@ func padString(s string, length int) string {
 		return s + strings.Repeat(" ", length-len(s))
 	}
 	return s
-}
-
-func (e AlreadyInitializedError) Error() string {
-	return "blog: already initialized"
-}
-
-func (e InvalidPathError) Error() string {
-	return fmt.Sprintf("blog: invalid path: %s", e.Path)
 }
 
 func (l LogLevel) toString() string {
@@ -420,39 +408,4 @@ func (l *logger) run() {
 			return
 		}
 	}
-}
-
-// Test Related ===============================================================
-
-// getCopyOfInstance is used for testing. It returns a copy of the current logger instance.
-// The purpose of this is to allow reading state without blocking the run goroutine.
-func getCopyOfInstance() logger {
-	reqStateChan <- struct{}{}
-	return <-resStateChan
-}
-
-// reset is used for testing. It shuts down the run goroutine and resets all variables.
-func reset() {
-	if instance == nil {
-		return
-	}
-	close(runExitChan)
-	runWaitGroup.Wait()
-	instance = nil
-	// reset run channels and wait group
-	flushChan = make(chan struct{})
-	logMsgChan = make(chan message, defaultMaxMsgChanBufSize)
-	updateLevel = make(chan LogLevel)
-	updateUseConsole = make(chan bool)
-	updateMaxWriteBufSize = make(chan int)
-	updateMaxFileSize = make(chan int)
-	updateFlushInterval = make(chan time.Duration)
-	updateDirPath = make(chan string)
-	syncFlushChan = make(chan struct{})
-	syncFlushDone = make(chan struct{})
-	syncFlushMutex = sync.Mutex{}
-	reqStateChan = make(chan struct{})
-	resStateChan = make(chan logger)
-	runExitChan = make(chan struct{})
-	runWaitGroup = sync.WaitGroup{}
 }
