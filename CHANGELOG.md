@@ -1,5 +1,10 @@
 # Changelog for "blog" project
 
+## [v0.3.0] - 2024-01-13
+
+### Added
+- **Formatting Options:** Added Errorf, Warnf, etc.
+
 ## [v0.2.2-beta] - 2024-01-13
 
 ### Added

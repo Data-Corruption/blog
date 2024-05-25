@@ -186,17 +186,42 @@ func SetFlushInterval(d time.Duration) { updateFlushInterval <- d }
 // Error logs an error message.
 func Error(msg string) { logMsgChan <- message{ERROR, 0, time.Now(), msg} }
 
+// Errorf logs an error message with a format string.
+func Errorf(format string, args ...any) {
+	logMsgChan <- message{ERROR, 0, time.Now(), fmt.Sprintf(format, args...)}
+}
+
 // Warn logs a warning message.
 func Warn(msg string) { logMsgChan <- message{WARN, 0, time.Now(), msg} }
+
+// Warnf logs a warning message with a format string.
+func Warnf(format string, args ...any) {
+	logMsgChan <- message{WARN, 0, time.Now(), fmt.Sprintf(format, args...)}
+}
 
 // Info logs an info message.
 func Info(msg string) { logMsgChan <- message{INFO, 0, time.Now(), msg} }
 
+// Infof logs an info message with a format string.
+func Infof(format string, args ...any) {
+	logMsgChan <- message{INFO, 0, time.Now(), fmt.Sprintf(format, args...)}
+}
+
 // Debug logs a debug message.
 func Debug(msg string) { logMsgChan <- message{DEBUG, 0, time.Now(), msg} }
 
+// Debugf logs a debug message with a format string.
+func Debugf(format string, args ...any) {
+	logMsgChan <- message{DEBUG, 0, time.Now(), fmt.Sprintf(format, args...)}
+}
+
 // Fatal logs a fatal message and exits with the given exit code.
 func Fatal(msg string, exitCode int) { logMsgChan <- message{FATAL, exitCode, time.Now(), msg} }
+
+// Fatalf logs a fatal message with a format string and exits with the given exit code.
+func Fatalf(format string, exitCode int, args ...any) {
+	logMsgChan <- message{FATAL, exitCode, time.Now(), fmt.Sprintf(format, args...)}
+}
 
 // ======== Unexported Functions ========
 
