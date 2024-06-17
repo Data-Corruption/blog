@@ -13,46 +13,10 @@ import (
 	"time"
 )
 
-// Variables ==================================================================
+// Public =====================================================================
 
-// default constants define the standard behavior and limits of the logger.
-const (
-	defaultMaxMsgChanBufSize = 255
-	defaultMaxWriteBufSize   = 4096               // 4 KB
-	defaultMaxFileSize       = 1024 * 1024 * 1024 // 1 GB
-	defaultFlushInterval     = 5 * time.Second
-)
+// ==== Types ====
 
-var (
-	// public errors
-	ErrAlreadyInitialized = fmt.Errorf("blog: already initialized")
-	ErrInvalidLogLevel    = fmt.Errorf("blog: invalid log level")
-	ErrInvalidPath        = fmt.Errorf("blog: invalid path")
-	// instance is the singleton instance of the logger.
-	instance *logger = nil
-	// run channels
-	flushChan             chan struct{}      = make(chan struct{})
-	logMsgChan            chan message       = make(chan message, defaultMaxMsgChanBufSize)
-	updateLevel           chan LogLevel      = make(chan LogLevel)
-	updateUseConsole      chan bool          = make(chan bool)
-	updateMaxWriteBufSize chan int           = make(chan int)
-	updateMaxFileSize     chan int           = make(chan int)
-	updateFlushInterval   chan time.Duration = make(chan time.Duration)
-	updateDirPath         chan string        = make(chan string)
-	// sync flush stuff
-	syncFlushChan  chan struct{} = make(chan struct{})
-	syncFlushDone  chan struct{} = make(chan struct{})
-	syncFlushMutex sync.Mutex    = sync.Mutex{}
-	// used for testing
-	reqStateChan chan struct{}  = make(chan struct{})
-	resStateChan chan logger    = make(chan logger)
-	runExitChan  chan struct{}  = make(chan struct{})
-	runWaitGroup sync.WaitGroup = sync.WaitGroup{}
-)
-
-// Types Definitions ==========================================================
-
-// LogLevel defines the severity levels for logging messages.
 type LogLevel int
 
 const (
@@ -64,27 +28,15 @@ const (
 	FATAL
 )
 
-// message represents a single log entry.
-type message struct {
-	level     LogLevel
-	exitCode  int // only used by FATAL messages
-	timestamp time.Time
-	content   string
-}
+// ==== Variables ====
 
-// logger is the main struct for the blog package, handling all logging operations.
-type logger struct {
-	level           LogLevel
-	useConsole      bool
-	maxWriteBufSize int
-	maxFileSize     int
-	flushInterval   time.Duration
-	dirPath         string
-	latestPath      string // dirPath/latest.log
-	writeBuffer     bytes.Buffer
-}
+var (
+	ErrAlreadyInitialized = fmt.Errorf("blog: already initialized")
+	ErrInvalidLogLevel    = fmt.Errorf("blog: invalid log level")
+	ErrInvalidPath        = fmt.Errorf("blog: invalid path")
+)
 
-// Exported Functions =========================================================
+// ==== Functions ====
 
 // Init sets up the logger with the specified directory path and log level.
 // It returns an error if called more than once or if the directory path is invalid.
@@ -216,14 +168,81 @@ func Debugf(format string, args ...any) {
 }
 
 // Fatal logs a fatal message and exits with the given exit code.
-func Fatal(msg string, exitCode int) { logMsgChan <- message{FATAL, exitCode, time.Now(), msg} }
-
-// Fatalf logs a fatal message with a format string and exits with the given exit code.
-func Fatalf(format string, exitCode int, args ...any) {
-	logMsgChan <- message{FATAL, exitCode, time.Now(), fmt.Sprintf(format, args...)}
+// This function will not return, it will exit the program after attempting to log the message.
+func Fatal(exitCode int, timeout time.Duration, msg string) {
+	logMsgChan <- message{FATAL, exitCode, time.Now(), msg}
+	time.Sleep(40 * time.Millisecond)
+	SyncFlush(timeout)
+	os.Exit(exitCode)
 }
 
-// ======== Unexported Functions ========
+// Fatalf logs a fatal message with a format string and exits with the given exit code.
+// This function will not return, it will exit the program after attempting to log the message.
+func Fatalf(exitCode int, timeout time.Duration, format string, args ...any) {
+	logMsgChan <- message{FATAL, exitCode, time.Now(), fmt.Sprintf(format, args...)}
+	time.Sleep(40 * time.Millisecond)
+	SyncFlush(timeout)
+	os.Exit(exitCode)
+}
+
+// Internal ===================================================================
+
+// ==== Types ====
+
+// message represents a single log entry.
+type message struct {
+	level     LogLevel
+	exitCode  int // only used by FATAL messages
+	timestamp time.Time
+	content   string
+}
+
+// logger is the main struct for the blog package, handling all logging operations.
+type logger struct {
+	level           LogLevel
+	useConsole      bool
+	maxWriteBufSize int
+	maxFileSize     int
+	flushInterval   time.Duration
+	dirPath         string
+	latestPath      string // dirPath/latest.log
+	writeBuffer     bytes.Buffer
+}
+
+// ==== Variables ====
+
+// default constants define the standard behavior and limits of the logger.
+const (
+	defaultMaxMsgChanBufSize = 255
+	defaultMaxWriteBufSize   = 4096               // 4 KB
+	defaultMaxFileSize       = 1024 * 1024 * 1024 // 1 GB
+	defaultFlushInterval     = 5 * time.Second
+)
+
+var (
+	// instance is the singleton instance of the logger.
+	instance *logger = nil
+	// run channels
+	flushChan             chan struct{}      = make(chan struct{})
+	logMsgChan            chan message       = make(chan message, defaultMaxMsgChanBufSize)
+	updateLevel           chan LogLevel      = make(chan LogLevel)
+	updateUseConsole      chan bool          = make(chan bool)
+	updateMaxWriteBufSize chan int           = make(chan int)
+	updateMaxFileSize     chan int           = make(chan int)
+	updateFlushInterval   chan time.Duration = make(chan time.Duration)
+	updateDirPath         chan string        = make(chan string)
+	// sync flush stuff
+	syncFlushChan  chan struct{} = make(chan struct{})
+	syncFlushDone  chan struct{} = make(chan struct{})
+	syncFlushMutex sync.Mutex    = sync.Mutex{}
+	// used for testing
+	reqStateChan chan struct{}  = make(chan struct{})
+	resStateChan chan logger    = make(chan logger)
+	runExitChan  chan struct{}  = make(chan struct{})
+	runWaitGroup sync.WaitGroup = sync.WaitGroup{}
+)
+
+// ==== Functions ====
 
 func padString(s string, length int) string {
 	if len(s) < length {
@@ -407,7 +426,7 @@ func (l *logger) run() {
 			l.handleMessage(msg)
 			if msg.level == FATAL {
 				l.flush()
-				os.Exit(1)
+				os.Exit(msg.exitCode)
 			}
 		case level := <-updateLevel:
 			l.level = level

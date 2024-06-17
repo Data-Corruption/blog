@@ -1,5 +1,10 @@
 # Changelog for "blog" project
 
+## [v1.0.0] - 2024-06-16
+
+### Changed
+- **Fatal Logging:** Fatal() and Fatalf() are now blocking / sync.
+
 ## [v0.3.0] - 2024-01-13
 
 ### Added
