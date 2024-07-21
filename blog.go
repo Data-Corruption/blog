@@ -423,6 +423,9 @@ func (l *logger) run() {
 			l.flush()
 			syncFlushDone <- struct{}{}
 		case msg := <-logMsgChan:
+			if msg.level == FATAL {
+				l.useConsole = true
+			}
 			l.handleMessage(msg)
 			if msg.level == FATAL {
 				l.flush()
