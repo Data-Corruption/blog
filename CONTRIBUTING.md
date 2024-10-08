@@ -21,8 +21,4 @@ When you submit your pull request:
 
 ## Questions or Problems?
 
-Just open an issue. I'm still learning a lot of this stuff, so let's figure it out together.
-
-## Finally
-
-Remember, the sun is going to explode and the universe will die from heat death. Don't stress too much about getting everything perfect <3
+Just open an issue. I'm still learning a lot of this stuff, so let's figure it out together. Remember, the sun is going to explode and the universe will die from heat death. Don't stress too much about getting everything perfect <3
