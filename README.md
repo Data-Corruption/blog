@@ -8,18 +8,11 @@ This project is born from a personal need for a performant logger and a desire t
 
 ## Features
 
-### Easy Integration
-- **Simple Integration**: Seamlessly integrate Blog with just a few lines of code to enable logging capabilities.
-- **Standard Library Only**: Rely's exclusively on Go's standard library, ensuring a lightweight solution minimizing your third-party dependencies.
-
-### Logging Essentials
-- **Level-Based Logging**: Choose from multiple log levels (DEBUG, INFO, WARN, ERROR, FATAL) for precise control over logging output.
-- **Concurrent Safe**: Ensure dependable logging across concurrent routines with a thread-safe design.
-- **Customizable At Runtime**: Adjust settings during runtime, including log level, output directory, limits, etc.
-
-### Efficient Log Management
-- **Log File Rotation**: Benefit from automatic size-based log file rotation to manage space efficiently.
-- **Transparent Optimizations**: Configurable optimized log writing with a rolling buffer. This feature handles size and time-based buffering strategies.
+- **Super Duper Simple**
+- **Standard Library Only**
+- **Concurrent Safe**
+- **Customizable At Runtime**
+- **Log File Rotation**
 
 ## Getting Started
 
