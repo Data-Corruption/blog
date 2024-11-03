@@ -529,3 +529,33 @@ func TestMaxWriteSize(t *testing.T) {
 		t.Errorf("Should have flushed by now")
 	}
 }
+
+/*
+
+parallel test example:
+
+func TestFirst(t *testing.T) {
+  // Run sequentially
+  t.Log("Running first test")
+}
+
+func TestSecond(t *testing.T) {
+  // Run sequentially
+  t.Log("Running second test")
+}
+
+func TestParallelTests(t *testing.T) {
+  t.Run("ParallelTest1", func(t *testing.T) {
+    t.Parallel()
+    t.Log("Running ParallelTest1")
+    // Use t like normal here
+  })
+
+  t.Run("ParallelTest2", func(t *testing.T) {
+    t.Parallel()
+    t.Log("Running ParallelTest2")
+    // Use t like normal here
+  })
+}
+
+*/
