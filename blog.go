@@ -1,13 +1,71 @@
-// Package blog implements a simple, thread-safe singleton logger.
-// It supports various log levels and can write to files or the console.
+/*
+Package blog implements a simple, thread-safe singleton logger.
+It supports various log levels and can write to files or the console.
+
+Usage:
+
+	// Init the logger with a dir path(or "" to disable file logging), a log level, and whether to include line numbers.
+	if err := blog.Init("logs", blog.INFO, false); err != nil {
+		log.Printf("Error initializing logger: %v", err)
+	}
+
+	// Log messages from anywhere in the program
+	blog.Info("This is an info message.")
+
+	// Log messages with formatting
+	blog.Infof("This is an info message with a format string: %v", err)
+
+	// Log a fatal message and exit with the given exit code
+	blog.Fatalf(1, 0, "This is a fatal message with a format string: %v", err)
+
+	// Manually flush the log write buffer
+	blog.Flush()
+
+	// Synchronously flush the log write buffer with a timeout; 0 means block indefinitely
+	blog.SyncFlush(0)
+
+	// Synchronously cleanup the logger with a timeout; 0 means block indefinitely
+	blog.Cleanup(0)
+
+The logger can be configured with the following functions at any time:
+  - SetLevel(LogLevel) sets the log level.
+  - SetUseConsole(bool) sets whether or not to log to the console.
+  - SetDirPath(string) sets the directory path for the log files. If dirPath is empty, the current working directory is used.
+  - SetMaxWriteBufSize(int) sets the maximum size(in bytes) of the log write buffer.
+  - SetMaxFileSize(int) sets the maximum size(in bytes) of the log file before it is renamed and a new log file is created.
+  - SetFlushInterval(time.Duration) sets the interval at which the log write buffer is automatically flushed to the log file.
+
+Performance Notes:
+  - Default max buf and file size are 4 KB and 1 GB respectively.
+  - A single thread is used to handle all logging operations.
+    The channel that feeds it messages is buffered to 255 via a constant. If the buffer becomes full, log funcs will block.
+    This shouldn't be an issue as if the flush fails for whatever reason, the logger will fall back to console logging.
+    Worst case, you parallel log in mass and the blocking becomes a bottleneck.
+
+For contributors:
+
+	The approach is pretty straightforward. The logger is a type with a bunch of channels for communication and vars for configuration.
+	When created it starts a goroutine that listens for messages and config updates then handles them.
+	The public functions don't interact with the logger directly, they do so using the channels.
+
+	Tests should create their own logger instances using newLogger() and use the 'r' prefixed functions to interact with them.
+	newLogger() lets you set the output writer for testing purposes. The public Init sets it to os.Stdout
+	The public functions create and use a singleton instance of the logger.
+
+	This has some nice benefits:
+	- Easily test multiple logger instances in parallel.
+	- Users don't need to manage the logger instance themselves.
+*/
 package blog
 
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -33,6 +91,7 @@ const (
 var (
 	ErrAlreadyInitialized = fmt.Errorf("blog: already initialized")
 	ErrInvalidLogLevel    = fmt.Errorf("blog: invalid log level")
+	ErrUninitialized      = fmt.Errorf("blog: uninitialized")
 	ErrInvalidPath        = fmt.Errorf("blog: invalid path")
 )
 
@@ -41,148 +100,92 @@ var (
 // Init sets up the logger with the specified directory path and log level.
 // It returns an error if called more than once or if the directory path is invalid.
 // On error, logging falls back to the console. See ErrAlreadyInitialized and ErrInvalidPath.
-func Init(dirPath string, level LogLevel) error {
+func Init(dirPath string, level LogLevel, includeLineNum bool) error {
 	if instance != nil {
 		return ErrAlreadyInitialized
 	}
-
-	// disable the default timestamp
-	log.SetFlags(0)
-
-	instance = &logger{
-		level:           level,
-		useConsole:      false,
-		dirPath:         "",
-		maxWriteBufSize: defaultMaxWriteBufSize,
-		maxFileSize:     defaultMaxFileSize,
-		flushInterval:   defaultFlushInterval,
-		latestPath:      "",
-		writeBuffer:     bytes.Buffer{},
-	}
-
-	err := instance.setDirPath(dirPath)
-	if err != nil {
-		instance.useConsole = true
-		instance.dirPath = ""
-		err = ErrInvalidPath
-	}
-
-	// start the run goroutine
-	runWaitGroup.Add(1)
-	go instance.run()
-
+	var err error
+	instance, err = newLogger(dirPath, level, includeLineNum, os.Stdout)
 	return err
+}
+
+// Cleanup flushes the log write buffer and exits the logger. If timeout is 0, Cleanup blocks indefinitely.
+func Cleanup(timeout time.Duration) error {
+	return c(func() error { return instance.rCleanup(timeout) })
 }
 
 // LogLevelFromString converts a string to a LogLevel, returning ErrInvalidLogLevel if the string is invalid.
 func LogLevelFromString(levelStr string) (LogLevel, error) {
-	switch strings.ToUpper(levelStr) {
-	case "NONE":
-		return NONE, nil
-	case "ERROR":
-		return ERROR, nil
-	case "ERR":
-		return ERROR, nil
-	case "WARN":
-		return WARN, nil
-	case "INFO":
-		return INFO, nil
-	case "DEBUG":
-		return DEBUG, nil
-	case "FATAL":
-		return FATAL, nil
-	default:
-		return NONE, ErrInvalidLogLevel
+	fromStrMap := map[string]LogLevel{"NONE": NONE, "ERROR": ERROR, "WARN": WARN, "INFO": INFO, "DEBUG": DEBUG, "FATAL": FATAL}
+	if level, ok := fromStrMap[strings.ToUpper(levelStr)]; ok {
+		return level, nil
 	}
+	return NONE, ErrInvalidLogLevel
 }
 
 // Flush manually flushes the log write buffer.
-func Flush() { flushChan <- struct{}{} }
+func Flush() error { return c(func() error { return instance.rFlush() }) }
 
 // SyncFlush synchronously flushes the log write buffer and blocks until the flush is complete or the timeout is reached. If timeout is 0, SyncFlush blocks indefinitely.
-func SyncFlush(timeout time.Duration) {
-	syncFlushMutex.Lock()
-	defer syncFlushMutex.Unlock()
-	syncFlushChan <- struct{}{}
-	if timeout == 0 {
-		<-syncFlushDone
-	} else {
-		select {
-		case <-syncFlushDone:
-		case <-time.After(timeout):
-		}
-	}
+func SyncFlush(timeout time.Duration) error {
+	return c(func() error { return instance.rSyncFlush(timeout) })
 }
 
 // SetLevel sets the log level.
-func SetLevel(level LogLevel) { updateLevel <- level }
+func SetLevel(level LogLevel) error {
+	return c(func() error { return instance.rSetLevel(level) })
+}
 
 // SetUseConsole sets whether or not to log to the console.
-func SetUseConsole(use bool) { updateUseConsole <- use }
+func SetUseConsole(use bool) error { return c(func() error { return instance.rSetUseConsole(use) }) }
 
 // SetMaxWriteBufSize sets the maximum size of the log write buffer.
-func SetMaxWriteBufSize(size int) { updateMaxWriteBufSize <- size }
+func SetMaxWriteBufSize(size int) error {
+	return c(func() error { return instance.rSetMaxWriteBufSize(size) })
+}
 
 // SetMaxFileSize sets the maximum size of the log file. When the log file reaches
 // this size, it is renamed to the current timestamp and a new log file is created.
-func SetMaxFileSize(size int) { updateMaxFileSize <- size }
+func SetMaxFileSize(size int) error { return c(func() error { return instance.rSetMaxFileSize(size) }) }
 
-// SetDirPath sets the directory path for the log files. If dirPath is empty, the
-// current working directory is used.
-func SetDirPath(path string) { updateDirPath <- path }
+// SetDirPath sets the directory path for the log files. When dirPath is an empty string, file logging is disabled.
+func SetDirPath(path string) error { return c(func() error { return instance.rSetDirPath(path) }) }
 
 // SetFlushInterval sets the interval at which the log write buffer is automatically
 // flushed to the log file.
-func SetFlushInterval(d time.Duration) { updateFlushInterval <- d }
-
-// Error logs an error message.
-func Error(msg string) { logMsgChan <- message{ERROR, 0, time.Now(), msg} }
-
-// Errorf logs an error message with a format string.
-func Errorf(format string, args ...any) {
-	logMsgChan <- message{ERROR, 0, time.Now(), fmt.Sprintf(format, args...)}
+func SetFlushInterval(d time.Duration) error {
+	return c(func() error { return instance.rSetFlushInterval(d) })
 }
 
-// Warn logs a warning message.
-func Warn(msg string) { logMsgChan <- message{WARN, 0, time.Now(), msg} }
+// ==== Logging Functions ====
 
-// Warnf logs a warning message with a format string.
-func Warnf(format string, args ...any) {
-	logMsgChan <- message{WARN, 0, time.Now(), fmt.Sprintf(format, args...)}
+func Error(msg string) error { return c(func() error { return instance.rError(msg) }) }
+func Errorf(format string, args ...any) error {
+	return c(func() error { return instance.rErrorf(format, args...) })
 }
-
-// Info logs an info message.
-func Info(msg string) { logMsgChan <- message{INFO, 0, time.Now(), msg} }
-
-// Infof logs an info message with a format string.
-func Infof(format string, args ...any) {
-	logMsgChan <- message{INFO, 0, time.Now(), fmt.Sprintf(format, args...)}
+func Warn(msg string) error { return c(func() error { return instance.rWarn(msg) }) }
+func Warnf(format string, args ...any) error {
+	return c(func() error { return instance.rWarnf(format, args...) })
 }
-
-// Debug logs a debug message.
-func Debug(msg string) { logMsgChan <- message{DEBUG, 0, time.Now(), msg} }
-
-// Debugf logs a debug message with a format string.
-func Debugf(format string, args ...any) {
-	logMsgChan <- message{DEBUG, 0, time.Now(), fmt.Sprintf(format, args...)}
+func Info(msg string) error { return c(func() error { return instance.rInfo(msg) }) }
+func Infof(format string, args ...any) error {
+	return c(func() error { return instance.rInfof(format, args...) })
+}
+func Debug(msg string) error { return c(func() error { return instance.rDebug(msg) }) }
+func Debugf(format string, args ...any) error {
+	return c(func() error { return instance.rDebugf(format, args...) })
 }
 
 // Fatal logs a fatal message and exits with the given exit code.
 // This function will not return, it will exit the program after attempting to log the message.
-func Fatal(exitCode int, timeout time.Duration, msg string) {
-	logMsgChan <- message{FATAL, exitCode, time.Now(), msg}
-	time.Sleep(40 * time.Millisecond)
-	SyncFlush(timeout)
-	os.Exit(exitCode)
+func Fatal(exitCode int, timeout time.Duration, msg string) error {
+	return c(func() error { return instance.rFatal(exitCode, timeout, msg) })
 }
 
 // Fatalf logs a fatal message with a format string and exits with the given exit code.
 // This function will not return, it will exit the program after attempting to log the message.
-func Fatalf(exitCode int, timeout time.Duration, format string, args ...any) {
-	logMsgChan <- message{FATAL, exitCode, time.Now(), fmt.Sprintf(format, args...)}
-	time.Sleep(40 * time.Millisecond)
-	SyncFlush(timeout)
-	os.Exit(exitCode)
+func Fatalf(exitCode int, timeout time.Duration, format string, args ...any) error {
+	return c(func() error { return instance.rFatalf(exitCode, timeout, format, args...) })
 }
 
 // Internal ===================================================================
@@ -194,19 +197,39 @@ type message struct {
 	level     LogLevel
 	exitCode  int // only used by FATAL messages
 	timestamp time.Time
+	lineNum   string // [file:line]
 	content   string
 }
 
 // logger is the main struct for the blog package, handling all logging operations.
 type logger struct {
+	stdLogger       *log.Logger // dedicated logger instance for removing timestamps without affecting the global logger
 	level           LogLevel
 	useConsole      bool
+	includeLineNum  bool
 	maxWriteBufSize int
 	maxFileSize     int
 	flushInterval   time.Duration
 	dirPath         string
 	latestPath      string // dirPath/latest.log
-	writeBuffer     bytes.Buffer
+	// run channels
+	flushChan             chan struct{}
+	logMsgChan            chan message
+	updateLevel           chan LogLevel
+	updateUseConsole      chan bool
+	updateMaxWriteBufSize chan int
+	updateMaxFileSize     chan int
+	updateFlushInterval   chan time.Duration
+	updateDirPath         chan string
+	// sync flush stuff
+	syncFlushChan  chan struct{}
+	syncFlushDone  chan struct{}
+	syncFlushMutex sync.Mutex
+	// exit stuff
+	runExitChan  chan struct{}
+	runWaitGroup sync.WaitGroup
+	// log buffer
+	writeBuffer bytes.Buffer
 }
 
 // ==== Variables ====
@@ -219,30 +242,20 @@ const (
 	defaultFlushInterval     = 5 * time.Second
 )
 
-var (
-	// instance is the singleton instance of the logger.
-	instance *logger = nil
-	// run channels
-	flushChan             chan struct{}      = make(chan struct{})
-	logMsgChan            chan message       = make(chan message, defaultMaxMsgChanBufSize)
-	updateLevel           chan LogLevel      = make(chan LogLevel)
-	updateUseConsole      chan bool          = make(chan bool)
-	updateMaxWriteBufSize chan int           = make(chan int)
-	updateMaxFileSize     chan int           = make(chan int)
-	updateFlushInterval   chan time.Duration = make(chan time.Duration)
-	updateDirPath         chan string        = make(chan string)
-	// sync flush stuff
-	syncFlushChan  chan struct{} = make(chan struct{})
-	syncFlushDone  chan struct{} = make(chan struct{})
-	syncFlushMutex sync.Mutex    = sync.Mutex{}
-	// used for testing
-	reqStateChan chan struct{}  = make(chan struct{})
-	resStateChan chan logger    = make(chan logger)
-	runExitChan  chan struct{}  = make(chan struct{})
-	runWaitGroup sync.WaitGroup = sync.WaitGroup{}
-)
+// instance is the singleton instance of the logger.
+// Tests don't use this or the public functions.
+// They create their own logger instances and use 'r' prefixed functions.
+var instance *logger = nil
 
 // ==== Functions ====
+
+// helper function that only executes the given function if the logger is initialized.
+func c(f func() error) error {
+	if instance == nil {
+		return ErrUninitialized
+	}
+	return f()
+}
 
 func padString(s string, length int) string {
 	if len(s) < length {
@@ -270,23 +283,146 @@ func (l LogLevel) toString() string {
 	}
 }
 
+func newLogger(dirPath string, level LogLevel, includeLineNum bool, consoleOutput io.Writer) (*logger, error) {
+	newLogger := &logger{
+		stdLogger:             log.New(consoleOutput, "", 0),
+		level:                 level,
+		useConsole:            false,
+		includeLineNum:        includeLineNum,
+		dirPath:               "",
+		maxWriteBufSize:       defaultMaxWriteBufSize,
+		maxFileSize:           defaultMaxFileSize,
+		flushInterval:         defaultFlushInterval,
+		latestPath:            "",
+		flushChan:             make(chan struct{}),
+		logMsgChan:            make(chan message, defaultMaxMsgChanBufSize),
+		updateLevel:           make(chan LogLevel),
+		updateUseConsole:      make(chan bool),
+		updateMaxWriteBufSize: make(chan int),
+		updateMaxFileSize:     make(chan int),
+		updateFlushInterval:   make(chan time.Duration),
+		updateDirPath:         make(chan string),
+		syncFlushChan:         make(chan struct{}),
+		syncFlushDone:         make(chan struct{}),
+		syncFlushMutex:        sync.Mutex{},
+		runExitChan:           make(chan struct{}),
+		runWaitGroup:          sync.WaitGroup{},
+		writeBuffer:           bytes.Buffer{},
+	}
+	// set the log directory path
+	err := newLogger.setPath(dirPath)
+	if err != nil {
+		newLogger.useConsole = true
+		newLogger.dirPath = ""
+		err = ErrInvalidPath
+	}
+	// start the run goroutine and return the logger
+	newLogger.runWaitGroup.Add(1)
+	go newLogger.run()
+	return newLogger, err
+}
+
+func (l *logger) rCleanup(timeout time.Duration) error {
+	// wait until run exits or timeout
+	done := make(chan struct{})
+	go func() {
+		l.rSyncFlush(timeout)
+		l.runExitChan <- struct{}{}
+		l.runWaitGroup.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+	}
+	instance = nil
+	return nil
+}
+
+func (l *logger) rFlush() error { l.flushChan <- struct{}{}; return nil }
+
+func (l *logger) rSyncFlush(timeout time.Duration) error {
+	l.syncFlushMutex.Lock()
+	defer l.syncFlushMutex.Unlock()
+	l.syncFlushChan <- struct{}{}
+	if timeout == 0 {
+		<-l.syncFlushDone
+	} else {
+		select {
+		case <-l.syncFlushDone:
+		case <-time.After(timeout):
+		}
+	}
+	return nil
+}
+
+func (l *logger) rSetLevel(level LogLevel) error          { l.updateLevel <- level; return nil }
+func (l *logger) rSetUseConsole(use bool) error           { l.updateUseConsole <- use; return nil }
+func (l *logger) rSetMaxWriteBufSize(size int) error      { l.updateMaxWriteBufSize <- size; return nil }
+func (l *logger) rSetMaxFileSize(size int) error          { l.updateMaxFileSize <- size; return nil }
+func (l *logger) rSetDirPath(path string) error           { l.updateDirPath <- path; return nil }
+func (l *logger) rSetFlushInterval(d time.Duration) error { l.updateFlushInterval <- d; return nil }
+
+func (l *logger) rError(msg string) error { l.qMsg(ERROR, 0, msg); return nil }
+func (l *logger) rErrorf(format string, args ...any) error {
+	l.qMsg(ERROR, 0, format, args...)
+	return nil
+}
+func (l *logger) rWarn(msg string) error { l.qMsg(WARN, 0, msg); return nil }
+func (l *logger) rWarnf(format string, args ...any) error {
+	l.qMsg(WARN, 0, format, args...)
+	return nil
+}
+func (l *logger) rInfo(msg string) error { l.qMsg(INFO, 0, msg); return nil }
+func (l *logger) rInfof(format string, args ...any) error {
+	l.qMsg(INFO, 0, format, args...)
+	return nil
+}
+func (l *logger) rDebug(msg string) error { l.qMsg(DEBUG, 0, msg); return nil }
+func (l *logger) rDebugf(format string, args ...any) error {
+	l.qMsg(DEBUG, 0, format, args...)
+	return nil
+}
+
+func (l *logger) rFatal(exitCode int, timeout time.Duration, msg string) error {
+	l.qMsg(FATAL, exitCode, msg)
+	time.Sleep(40 * time.Millisecond)
+	l.rSyncFlush(0)
+	os.Exit(exitCode)
+	return nil
+}
+func (l *logger) rFatalf(exitCode int, timeout time.Duration, format string, args ...any) error {
+	l.qMsg(FATAL, exitCode, format, args...)
+	time.Sleep(40 * time.Millisecond)
+	l.rSyncFlush(0)
+	os.Exit(exitCode)
+	return nil
+}
+
+// qMsg queues a message to be logged.
+func (l *logger) qMsg(level LogLevel, code int, format string, args ...any) {
+	lineNum := ""
+	if l.includeLineNum {
+		if _, file, line, ok := runtime.Caller(2); ok {
+			lineNum = fmt.Sprintf("[%s:%d]", filepath.Base(file), line)
+		}
+	}
+	l.logMsgChan <- message{level, code, time.Now(), lineNum, fmt.Sprintf(format, args...)}
+}
+
 func (l *logger) genLogPath() string {
 	if l.dirPath == "" {
-		panic("dirPath in blog is nil, this should never happen")
+		return ""
 	}
 	timestamp := time.Now().Format("2006-01-02_15-04-05")
 	return filepath.Join(l.dirPath, timestamp+".log")
 }
 
-func (l *logger) setDirPath(path string) error {
-	// if path is empty, set to current working directory
+func (l *logger) setPath(path string) error {
+	// if path is empty, clear the dir path and latest path
 	if path == "" {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return err
-		}
-		l.dirPath = cwd
-		l.latestPath = filepath.Join(cwd, "latest.log")
+		l.dirPath = ""
+		l.latestPath = ""
 		return nil
 	}
 	// check if the path exists and is a directory
@@ -322,6 +458,10 @@ func (l *logger) handleMessage(msg message) {
 	prefix := msg.timestamp.Format("[2006-01-02,15-04-05,") + msg.level.toString() + "] "
 	// make sure the prefix is at least 28 characters long
 	prefix = padString(prefix, 28)
+	// add the line number if it exists
+	if msg.lineNum != "" {
+		prefix += msg.lineNum + " "
+	}
 	// Format the message
 	msg.content = prefix + msg.content + "\n"
 	// If a file path is set, write the message to the log file
@@ -333,15 +473,19 @@ func (l *logger) handleMessage(msg message) {
 	}
 	// If console logging is enabled, write the message to the console
 	if l.useConsole {
-		log.Print(msg.content)
+		l.stdLogger.Print(msg.content)
 	}
 }
 
 // handleFileOverflow renames latest.log to the current timestamp and creates a new latest.log.
 func (l *logger) handleFileOverflow() (*os.File, error) {
 	// rename latest.log to the current timestamp
-	if err := os.Rename(l.latestPath, l.genLogPath()); err != nil {
-		return nil, err
+	if newName := l.genLogPath(); newName == "" {
+		return nil, ErrInvalidPath
+	} else {
+		if err := os.Rename(l.latestPath, newName); err != nil {
+			return nil, err
+		}
 	}
 	// create a new latest.log
 	f, err := os.OpenFile(l.latestPath, os.O_CREATE|os.O_WRONLY, 0644)
@@ -354,11 +498,9 @@ func (l *logger) handleFileOverflow() (*os.File, error) {
 // handleFlushError prints the error to the console, sets use console to true and dir path to nil,
 // effectively disabling file logging, and prints the remaining write buffer to the console.
 func (l *logger) handleFlushError(err error) {
-	// print the error to the console
 	log.Printf("Falling back to console logging due to an error flushing the log write buffer: %v", err)
-	// set use console to true and dir path to nil which will disable file logging
 	l.useConsole = true
-	l.dirPath = ""
+	l.dirPath = "" // disable file logging
 	// print the remaining write buffer to the console
 	log.Print(l.writeBuffer.String())
 	l.writeBuffer.Reset()
@@ -404,6 +546,7 @@ func (l *logger) flush() {
 
 // run is the main loop for the logger.
 func (l *logger) run() {
+	defer l.runWaitGroup.Done()
 	var ticker *time.Ticker = time.NewTicker(l.flushInterval)
 	defer ticker.Stop()
 	shouldRestart := false
@@ -417,12 +560,12 @@ func (l *logger) run() {
 		select {
 		case <-ticker.C:
 			l.flush()
-		case <-flushChan:
+		case <-l.flushChan:
 			l.flush()
-		case <-syncFlushChan:
+		case <-l.syncFlushChan:
 			l.flush()
-			syncFlushDone <- struct{}{}
-		case msg := <-logMsgChan:
+			l.syncFlushDone <- struct{}{}
+		case msg := <-l.logMsgChan:
 			if msg.level == FATAL {
 				l.useConsole = true
 			}
@@ -431,27 +574,24 @@ func (l *logger) run() {
 				l.flush()
 				os.Exit(msg.exitCode)
 			}
-		case level := <-updateLevel:
+		case level := <-l.updateLevel:
 			l.level = level
-		case useConsole := <-updateUseConsole:
+		case useConsole := <-l.updateUseConsole:
 			l.useConsole = useConsole
-		case maxWriteBufSize := <-updateMaxWriteBufSize:
+		case maxWriteBufSize := <-l.updateMaxWriteBufSize:
 			l.maxWriteBufSize = maxWriteBufSize
-		case maxFileSize := <-updateMaxFileSize:
+		case maxFileSize := <-l.updateMaxFileSize:
 			l.maxFileSize = maxFileSize
-		case flushInterval := <-updateFlushInterval:
+		case flushInterval := <-l.updateFlushInterval:
 			l.flushInterval = flushInterval
 			shouldRestart = true
-		case dirPath := <-updateDirPath:
-			err := l.setDirPath(dirPath)
+		case dirPath := <-l.updateDirPath:
+			err := l.setPath(dirPath)
 			if err != nil {
 				l.useConsole = true
 				l.dirPath = ""
 			}
-		case <-reqStateChan:
-			resStateChan <- *l
-		case <-runExitChan:
-			runWaitGroup.Done()
+		case <-l.runExitChan:
 			return
 		}
 	}
