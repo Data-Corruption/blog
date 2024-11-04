@@ -36,7 +36,7 @@ The logger can be configured with the following functions at any time:
   - SetFlushInterval(time.Duration) sets the interval at which the log write buffer is automatically flushed to the log file.
 
 Performance Notes:
-  - Default max buf and file size are 4 KB and 1 GB respectively.
+  - Default max buf and file size are 4 KB and 1 GB respectively. The default flush interval is 15 seconds.
   - A single thread is used to handle all logging operations.
     The channel that feeds it messages is buffered to 255 via a constant. If the buffer becomes full, log funcs will block.
     This shouldn't be an issue as if the flush fails for whatever reason, the logger will fall back to console logging.
@@ -45,10 +45,10 @@ Performance Notes:
 For contributors:
 
 	The approach is pretty straightforward. The logger is a type with a bunch of channels for communication and vars for configuration.
-	When created it starts a goroutine that listens for messages and config updates then handles them.
+	When created it starts a goroutine that listens for messages/config updates via the chans then handles them.
 	The public functions don't interact with the logger directly, they do so using the channels.
 
-	Tests should create their own logger instances using newLogger() and use the 'r' prefixed functions to interact with them.
+	Tests should create their own logger instances using newLogger() then use the 'r' prefixed member functions to interact with it.
 	newLogger() lets you set the output writer for testing purposes. The public Init sets it to os.Stdout
 	The public functions create and use a singleton instance of the logger.
 
@@ -72,19 +72,6 @@ import (
 )
 
 // Public =====================================================================
-
-// ==== Types ====
-
-type LogLevel int
-
-const (
-	NONE LogLevel = iota
-	ERROR
-	WARN
-	INFO
-	DEBUG
-	FATAL
-)
 
 // ==== Variables ====
 
@@ -133,7 +120,7 @@ func SyncFlush(timeout time.Duration) error {
 
 // SetLevel sets the log level.
 func SetLevel(level LogLevel) error {
-	return c(func() error { return instance.rSetLevel(level) })
+	return c(func() error { return instance.SetLevel(level) })
 }
 
 // SetUseConsole sets whether or not to log to the console.
@@ -207,6 +194,7 @@ type logger struct {
 	level           LogLevel
 	useConsole      bool
 	includeLineNum  bool
+	lineNumSkip     int // number of stack frames to skip when getting the line number. For test which call member functions directly.
 	maxWriteBufSize int
 	maxFileSize     int
 	flushInterval   time.Duration
@@ -239,7 +227,7 @@ const (
 	defaultMaxMsgChanBufSize = 255
 	defaultMaxWriteBufSize   = 4096               // 4 KB
 	defaultMaxFileSize       = 1024 * 1024 * 1024 // 1 GB
-	defaultFlushInterval     = 5 * time.Second
+	defaultFlushInterval     = 15 * time.Second
 )
 
 // instance is the singleton instance of the logger.
@@ -255,32 +243,6 @@ func c(f func() error) error {
 		return ErrUninitialized
 	}
 	return f()
-}
-
-func padString(s string, length int) string {
-	if len(s) < length {
-		return s + strings.Repeat(" ", length-len(s))
-	}
-	return s
-}
-
-func (l LogLevel) toString() string {
-	switch l {
-	case NONE:
-		return "NONE"
-	case ERROR:
-		return "ERROR"
-	case WARN:
-		return "WARN"
-	case INFO:
-		return "INFO"
-	case DEBUG:
-		return "DEBUG"
-	case FATAL:
-		return "FATAL"
-	default:
-		return "?"
-	}
 }
 
 func newLogger(dirPath string, level LogLevel, includeLineNum bool, consoleOutput io.Writer) (*logger, error) {
@@ -356,7 +318,7 @@ func (l *logger) rSyncFlush(timeout time.Duration) error {
 	return nil
 }
 
-func (l *logger) rSetLevel(level LogLevel) error          { l.updateLevel <- level; return nil }
+func (l *logger) SetLevel(level LogLevel) error           { l.updateLevel <- level; return nil }
 func (l *logger) rSetUseConsole(use bool) error           { l.updateUseConsole <- use; return nil }
 func (l *logger) rSetMaxWriteBufSize(size int) error      { l.updateMaxWriteBufSize <- size; return nil }
 func (l *logger) rSetMaxFileSize(size int) error          { l.updateMaxFileSize <- size; return nil }
@@ -455,9 +417,9 @@ func (l *logger) handleMessage(msg message) {
 		return
 	}
 	// create the message prefix
-	prefix := msg.timestamp.Format("[2006-01-02,15-04-05,") + msg.level.toString() + "] "
+	prefix := msg.timestamp.Format("[2006-01-02,15-04-05,") + msg.level.String() + "] "
 	// make sure the prefix is at least 28 characters long
-	prefix = padString(prefix, 28)
+	prefix = PadString(prefix, 28)
 	// add the line number if it exists
 	if msg.lineNum != "" {
 		prefix += msg.lineNum + " "
