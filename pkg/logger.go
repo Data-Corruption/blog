@@ -27,8 +27,7 @@ Usage:
 	// Create a new instance that outputs to os.Stdout with default settings, a 255 message buffer size, and a 2 stack frame skip.
 	var err error
 	var logger *blog.Logger
-	logger, err := blog.NewLogger(blog.Config{}, 255, 2) // see func comment for details
-	if err != nil {
+	if logger, err = blog.NewLogger(blog.Config{}, 255, 2, nil); err != nil {
 		log.Printf("Error creating logger: %v", err)
 	}
 
@@ -117,7 +116,8 @@ type LogMessage struct {
 // The msgChanSize parameter controls the buffer size of the message channel,
 // where 0 means unbuffered. LocationSkip controls the number of stack frames
 // to skip when including the location in log messages (-1 to disable). For
-// normal usage, LocationSkip should be set to 2.
+// normal usage, LocationSkip should be set to 2. The consoleOut parameter
+// defaults to log.New(os.Stdout, "", 0) if nil. It exists mainly for easy testing.
 //
 // Returns an error if the log directory path cannot be set.
 func NewLogger(cfg Config, msgChanSize int, LocationSkip int, consoleOut *ConsoleLogger) (*Logger, error) {
@@ -342,6 +342,7 @@ func (l *Logger) handleFileOverflow() (*os.File, error) {
 func (l *Logger) handleFlushError(err error) {
 	l.fallbackToConsole()
 	// print the remaining write buffer to the console
+	l.ConsoleOut.Print("Failed to write to log file: " + err.Error() + "\n")
 	l.ConsoleOut.Print(l.writeBuffer.String())
 	l.writeBuffer.Reset()
 }
@@ -391,9 +392,11 @@ func (l *Logger) run() {
 
 	for {
 		if restartTickerReq {
-			ticker.Stop()
-			ticker = time.NewTicker(*l.config.FlushInterval)
 			restartTickerReq = false
+			ticker.Stop()
+			if *l.config.FlushInterval > 0 {
+				ticker = time.NewTicker(*l.config.FlushInterval)
+			}
 		}
 		select {
 		case m := <-l.messageChan:
@@ -425,5 +428,3 @@ func (l *Logger) run() {
 		}
 	}
 }
-
-// TODO: disable autoflush support

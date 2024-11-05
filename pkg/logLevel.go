@@ -40,6 +40,7 @@ func (l *LogLevel) FromString(levelStr string) error {
 	fromStrMap := map[string]LogLevel{"NONE": NONE, "ERROR": ERROR, "WARN": WARN, "INFO": INFO, "DEBUG": DEBUG, "FATAL": FATAL}
 	if level, ok := fromStrMap[strings.ToUpper(levelStr)]; ok {
 		*l = level
+		return nil
 	}
 	return ErrInvalidLogLevel
 }
