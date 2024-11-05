@@ -8,6 +8,13 @@ func SetIfNil[T any](ptr **T, value T) {
 	}
 }
 
+// CopyNotNil copies the value of src to dst if src is not nil.
+func CopyNotNil[T any](dst, src *T) {
+	if src != nil {
+		*dst = *src
+	}
+}
+
 func Ternary[T any](condition bool, a, b T) T {
 	if condition {
 		return a
