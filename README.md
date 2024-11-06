@@ -1,74 +1,51 @@
 # Blog · [![Tests](https://github.com/Data-Corruption/blog/actions/workflows/tests.yml/badge.svg)](https://github.com/Data-Corruption/blog/actions/workflows/tests.yml) [![codecov](https://codecov.io/github/Data-Corruption/blog/graph/badge.svg?token=HGC6QI86EG)](https://codecov.io/github/Data-Corruption/blog) ![Go Report](https://img.shields.io/badge/go%20report-A+-brightgreen.svg?style=flat) [![Go Reference](https://pkg.go.dev/badge/github.com/Data-Corruption/blog.svg)](https://pkg.go.dev/github.com/Data-Corruption/blog) ![GitHub License](https://img.shields.io/github/license/Data-Corruption/blog)
 
-Blog is an async logging package for Go, designed with simplicity and performance in mind. It serves as a straightforward solution for developers looking for efficient, async logging without the complexities often found in larger frameworks. Currently, Blog is focused purely on async operations, with no immediate plans to incorporate synchronous logging.
+Blog is a simple async logger with file rotation and console logging.
 
 This project is born from a personal need for a performant logger and a desire to deepen my understanding of Go. While it's primarily a personal endeavor, I welcome anyone who finds it useful for their own projects and am open to evolving it based on user feedback and needs.
 
-**Quick Links:** [Features](#features) · [Getting Started](#getting-started) · [FAQ](#faq) · [Contributing](#contributing) · [License](#license)
-
 ## Features
 
-- **Super Duper Simple**
 - **Standard Library Only**
-- **Concurrent Safe**
+- **Thread-Safe**
 - **Customizable At Runtime**
 - **Log File Rotation**
 
 ## Getting Started
 
 ```sh
-go get github.com/Data-Corruption/blog
+go get github.com/Data-Corruption/blog/v2
 ```
 
 Basic Example:
 
 ```go
-import "github.com/Data-Corruption/blog"
+import "github.com/Data-Corruption/blog/v2/pkg"
 
 func main() {
-    // gracefully flush remaining buffer before an exit.
-    defer blog.SyncFlush(0)
-    // init logger to write in current working directory at level INFO
-    if err := blog.Init("", blog.INFO); err != nil {
-        blog.Error("Falling back to console due to out dir issue: " + err.Error())
-    }
-    blog.Info("This is an informational message")
-    // ... rest of your code ...
-}
-```
-
-Advanced Example:
-
-```go
-import "github.com/Data-Corruption/blog"
-
-func main() {
-  defer blog.SyncFlush(0)
-
-  // Convert a string to a LogLevel
-  level, err := blog.LogLevelFromString("Info")
-  if err != nil {
-    // handle unknown string level
+  // Init blog.
+  //
+  // Parameters:
+  //   - DirPath: Path for log files. "." for current working directory or "" to disable file logging.
+  //   - Level: Desired logging level for filtering messages.
+  //   - IncludeLocation: When true, adds source file and line number to log messages (e.g., "main.go:42").
+  //   - EnableConsole: When true, enables logging to the console in addition to files.
+  //
+  if err := blog.Init("logs", blog.INFO, false, true); err != nil {
+    log.Printf("Error initializing logger: %v", err)
   }
 
-  // Initialization error handling
-	if err := blog.Init("example/dir", level); err != nil {
-		switch err.(type) {
-		case blog.AlreadyInitializedError:
-			// handle already initialized case
-		case blog.InvalidPathError:
-			// handle invalid path case
-		default:
-			// handle other errors
-		}
-		blog.Error("Initialization failed:", err)
-	}
+  // Log messages from anywhere in the program
+  blog.Info("This is an info message.")
 
-  blog.Error("This is an error")
-  blog.Warn("This is a warning")
-  blog.Info("This is information")
-  blog.Debug("This is verbose debug data")
-  blog.Fatal("This is a fatal msg that will close the app")
+  // Log messages with formatting
+  blog.Warnf("This is an warn message with a format string: %v", err)
+
+  // Synchronously cleanup the logger with a timeout; 0 means block indefinitely.
+  // This should be called at the end of the program.
+  blog.Cleanup(0)
+
+  // for all other functions see `blog.go`. For access to the raw logger, see `logger.go`.
 }
 ```
 
@@ -81,7 +58,7 @@ In this section, you'll find answers to common questions and troubleshooting tip
 
 Question: What happens when the log file reaches its maximum size, and how can I manage it?
 
-Answer: Blog automatically handles log file rotation based on the size limit you set. Once the latest.log file exceeds the specified maximum size, it's renamed with the current date and time, and a new latest.log file is created. You can adjust the maximum file size using `blog.SetMaxFileSize(size)`. This ensures your logs are manageable and prevents excessive file growth.
+Answer: Blog automatically handles log file rotation based on the size limit you set. Once the latest.log file exceeds the specified maximum size, it's renamed with the current date and time, and a new latest.log file is created. You can adjust the maximum file size using `blog.SetMaxFileSizeBytes(size)`. This ensures your logs are manageable and prevents excessive file growth.
 </details>
 
 <details>
@@ -90,20 +67,14 @@ Answer: Blog automatically handles log file rotation based on the size limit you
 Question: Can I change the logger's settings at runtime, and how?
 
 Answer: Yes, you can dynamically adjust various settings in the logger. Due to the async nature of the logger these settings may take a few ms to update. Here is a list of available methods to update settings:
+
 - `SetLevel(level LogLevel)`
-- `SetUseConsole(use bool)`
-- `SetMaxWriteBufSize(size int)`
-- `SetMaxFileSize(size int)`
-- `SetDirPath(path string)`
-- `SetFlushInterval(d time.Duration)`
-</details>
+- `SetConsole(enable bool)`
+- `SetMaxBufferSizeBytes(size int)` Larger values will increase memory usage and reduce the frequency of disk writes.
+- `SetMaxFileSizeBytes(size int)`
+- `SetDirectoryPath(path string)` "." for current directory and "" to disable file logging.
+- `SetFlushInterval(d time.Duration)` To disable automatic flushing, set to 0
 
-<details>
-<summary><b>Understanding LogLevelFromString Functionality</b></summary>
-
-Question: What does blog.LogLevelFromString("string") do, and how should I handle unknown log levels?
-
-Answer: The function blog.LogLevelFromString("string") converts a string representation of a log level (like "info" or "debug") into a Blog's LogLevel. If the string doesn't match any known log levels, it returns false as the second return value. The case of the characters is irrelevant as they are all upcased before checking.
 </details>
 
 <details>
@@ -113,11 +84,9 @@ Answer: The function blog.LogLevelFromString("string") converts a string represe
 
 **Answer**: Blog optimizes log writing using a rolling buffer, which automatically flushes based on two configurable events:
 
-  - **Buffer Size Limit Reached**: When the buffer accumulates to a certain size, it triggers a flush. You can set this threshold with `blog.SetMaxWriteBufSize(size)`. The default size is 4KB. Adjusting this allows you to balance between performance and real-time logging based on your application's needs.
+- **Buffer Size Limit Reached**: When the buffer accumulates to a certain size, it triggers a flush. You can set this threshold with `blog.SetMaxBufferSizeBytes(size)`. The default size is 4KB. Larger values will reduce the frequency of disk writes but also increase memory usage.
+- **Time Interval Elapsed**: The buffer also flushes periodically after a specified time interval, ensuring logs are written even during low activity. Set this interval with `blog.SetFlushInterval(amountOfTime)`. The default interval is 5 seconds. Shortening this time ensures more frequent writes, while lengthening it can reduce disk I/O. To disable entirely set this to 0.
 
-  - **Time Interval Elapsed**: The buffer also flushes periodically after a specified time interval, ensuring logs are written even during low activity. Set this interval with `blog.SetFlushInterval(amountOfTime)`. The default interval is 5 seconds. Shortening this time ensures more frequent writes, while lengthening it can reduce disk I/O in less critical applications.
-
-Both settings are crucial for tailoring Blog's performance to match your specific logging requirements and operational environment.
 </details>
 
 <details>
@@ -125,8 +94,7 @@ Both settings are crucial for tailoring Blog's performance to match your specifi
 
 **Question**: Is Blog suitable for concurrent environments, and are there any special considerations for synchronous operations?
 
-**Answer**: Blog is inherently safe for concurrent use in applications utilizing multiple goroutines. It manages access to log files asynchronously, ensuring thread safety without the need for additional synchronization in most scenarios. However, due to its asynchronous nature, if you require synchronous logging, i recommend checking out one of GO's many libs that support sync operation, here is one if interested:
-- **zap**: https://github.com/uber-go/zap
+**Answer**: Blog is inherently safe for concurrent use in applications. Keep in mind it is asynchronous. Tf you require synchronous logging, I recommend checking out one of GO's many libs that support sync operation, like [zap](https://github.com/uber-go/zap).
 </details>
 
 <details>
@@ -134,13 +102,12 @@ Both settings are crucial for tailoring Blog's performance to match your specifi
   
 **Question**: After logging a message, flushing, and then reading the log file, why doesn't it contain my message?
 
-**Answer**: This is likely due to the asynchronous nature of our logging system, which utilizes goroutines and channels. These processes require some time to execute. To resolve this:
-  - **Step 1**: Wait for a few milliseconds after logging your message before flushing.
-  - **Step 2**: Similarly, wait for a few milliseconds after flushing before you attempt to read the log file.o
-These steps ensure that the system has enough time to process your requests.
+**Answer**: This is likely due to the asynchronous nature of our logging system. These processes may require some time to execute. To resolve this:
+
+- **Step 1**: Wait for a few milliseconds after logging your message before flushing or cleanup.
+- **Step 2**: Similarly, wait for a few milliseconds after flushing before you attempt to read the log file.
 
 </details>
-
 
 ## Contributing
 

@@ -134,8 +134,8 @@ func SetLevel(level LogLevel) error {
 }
 
 // SetConsole enables or disables console logging.
-func SetConsole(enabled bool) error {
-	cl := &ConsoleLogger{l: Ternary(enabled, log.New(os.Stdout, "", 0), nil)}
+func SetConsole(enable bool) error {
+	cl := &ConsoleLogger{l: Ternary(enable, log.New(os.Stdout, "", 0), nil)}
 	return a(func() { instance.UpdateConfig(Config{ConsoleOut: cl}) })
 }
 
