@@ -1,5 +1,22 @@
 # Changelog for "blog" project
 
+## [v2.0.0] - 2024-07-21
+
+### Added
+
+- **Cleanup():** You should now call this instead of SyncFlush at the end of your program.
+
+### Changed
+
+- **Init():** Now takes an additional two boolean arguments: IncludeLocation and EnableConsole.
+
+### Deprecated
+
+- **SetUseConsole():** Renamed to SetConsole.
+- **SetDirPath():** Renamed to SetDirectoryPath.
+- **SetMaxWriteBufSize():** Renamed to SetMaxBufferSizeBytes.
+- **SetMaxFileSize():** Renamed to SetMaxFileSizeBytes.
+
 ## [v1.0.1] - 2024-07-21
 
 ### Changed
