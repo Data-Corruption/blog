@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -12,12 +14,25 @@ import (
 
 // Helper functions ===========================================================
 
-func normalInit(path string) (*Logger, *bytes.Buffer, error) {
+func bufInit() (*Logger, *bytes.Buffer, error) {
+	path := "" // no file output
 	level := INFO
 	buf := &bytes.Buffer{}
 	cl := &ConsoleLogger{l: log.New(buf, "", 0)}
 	instance, err := NewLogger(Config{Level: &level, DirectoryPath: &path, ConsoleOut: cl}, 255, 2)
 	return instance, buf, err
+}
+
+func fileInit() (*Logger, *bytes.Buffer, string, error) {
+	tempDir, err := os.MkdirTemp("", "example")
+	if err != nil {
+		return nil, nil, "", err
+	}
+	level := INFO
+	buf := &bytes.Buffer{}
+	cl := &ConsoleLogger{l: log.New(buf, "", 0)}
+	instance, err := NewLogger(Config{Level: &level, DirectoryPath: &tempDir, ConsoleOut: cl}, 255, 2)
+	return instance, buf, tempDir, err
 }
 
 // Tests ======================================================================
@@ -118,10 +133,10 @@ func TestShutdown(t *testing.T) {
 	path := ""
 	level := INFO
 	instance, _ := NewLogger(Config{Level: &level, DirectoryPath: &path}, 255, 2)
-	time.Sleep(100 * time.Millisecond)
-	err := instance.Shutdown(time.Second)
+	time.Sleep(20 * time.Millisecond)
+	err := instance.Shutdown(0)
 	if err != nil {
-		t.Errorf("instance.Shutdown(time.Second) = %v; want nil", err)
+		t.Errorf("instance.Shutdown(0) = %v; want nil", err)
 	}
 }
 
@@ -140,7 +155,7 @@ func TestParallelTests(t *testing.T) {
 	t.Run("ConsoleOutput", func(t *testing.T) {
 		t.Parallel()
 
-		instance, buf, err := normalInit("")
+		instance, buf, err := bufInit()
 		if err != nil {
 			t.Errorf("Error during normalInit: %v", err)
 		}
@@ -154,10 +169,111 @@ func TestParallelTests(t *testing.T) {
 			t.Errorf("Console output = \"%s\"; want something that contains \"%s\"", actual, testMsg)
 		} else {
 			actual = strings.TrimSuffix(actual, "\n")
-			fmt.Println("Example output: ", actual)
+			fmt.Println("Console output: ", actual)
 		}
+
+		buf.Reset()
+		instance.UpdateConfig(Config{ConsoleOut: &ConsoleLogger{l: nil}})
+		time.Sleep(20 * time.Millisecond)
+		instance.Info(testMsg)
+		time.Sleep(20 * time.Millisecond)
+
+		actual = buf.String()
+		if actual != "" {
+			t.Errorf("Console output = \"%s\" after being disabled", actual)
+		}
+
 		instance.Shutdown(time.Second)
 	})
-}
 
-// tempDir, err = os.MkdirTemp("", "example")
+	t.Run("FileOutput", func(t *testing.T) {
+		t.Parallel()
+
+		instance, _, dirPath, err := fileInit()
+		if err != nil {
+			t.Errorf("Error during normalInit: %v", err)
+		}
+
+		testMsg := "This is a test"
+		instance.Info(testMsg)
+		time.Sleep(20 * time.Millisecond)
+		instance.SyncFlush(time.Second)
+
+		file, err := os.ReadFile(filepath.Join(dirPath, "latest.log"))
+		if err != nil {
+			t.Errorf("Error reading log file: %v", err)
+		}
+
+		actual := string(file)
+		if !strings.Contains(actual, testMsg) {
+			t.Errorf("File output = \"%s\"; want something that contains \"%s\"", actual, testMsg)
+		} else {
+			actual = strings.TrimSuffix(actual, "\n")
+			fmt.Println("File output: ", actual)
+		}
+
+		instance.Shutdown(time.Second)
+	})
+
+	t.Run("FileAutoFlush", func(t *testing.T) {
+		t.Parallel()
+
+		instance, _, dirPath, err := fileInit()
+		if err != nil {
+			t.Errorf("Error during normalInit: %v", err)
+		}
+
+		time.Sleep(20 * time.Millisecond)
+
+		testMsg := "This is a test"
+		instance.Info(testMsg)
+		second := time.Millisecond * 100
+		instance.UpdateConfig(Config{FlushInterval: &second})
+
+		time.Sleep(time.Millisecond * 150)
+
+		file, err := os.ReadFile(filepath.Join(dirPath, "latest.log"))
+		if err != nil {
+			t.Errorf("Error reading log file: %v", err)
+		}
+
+		instance.Shutdown(time.Second)
+
+		actual := string(file)
+		if !strings.Contains(actual, testMsg) {
+			t.Errorf("File output = \"%s\"; want something that contains \"%s\"", actual, testMsg)
+		}
+	})
+
+	t.Run("FileRotation", func(t *testing.T) {
+		t.Parallel()
+
+		instance, _, dirPath, err := fileInit()
+		if err != nil {
+			t.Errorf("Error during normalInit: %v", err)
+		}
+
+		time.Sleep(20 * time.Millisecond)
+
+		s := 100
+		instance.UpdateConfig(Config{MaxFileSizeBytes: &s, MaxBufferSizeBytes: &s})
+		time.Sleep(20 * time.Millisecond)
+
+		testMsg := strings.Repeat("This is a test", 100)
+		instance.Info(testMsg) // creates a new file
+		instance.Info(testMsg) // creates a new file
+		instance.Info(testMsg) // creates a new file
+		time.Sleep(20 * time.Millisecond)
+		instance.Shutdown(time.Second)
+		time.Sleep(time.Millisecond * 150)
+
+		// check that there are 3 files
+		files, err := os.ReadDir(dirPath)
+		if err != nil {
+			t.Errorf("Error reading directory: %v\nPath: %s", err, dirPath)
+		}
+		if len(files) != 3 {
+			t.Errorf("len(files) = %d; want 3; Path: %s", len(files), dirPath)
+		}
+	})
+}

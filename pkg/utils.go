@@ -1,6 +1,10 @@
 package blog
 
-import "strings"
+import (
+	"crypto/rand"
+	"encoding/base64"
+	"strings"
+)
 
 // CopyNotNil copies the value of src to dst if src is not nil.
 func CopyNotNil[T any](dst, src *T) {
@@ -21,4 +25,13 @@ func PadString(s string, length int) string {
 		return s + strings.Repeat(" ", length-len(s))
 	}
 	return s
+}
+
+func GenRandomString(size int) (string, error) {
+	b := make([]byte, size)
+	_, err := rand.Read(b)
+	if err != nil {
+		return "", err
+	}
+	return base64.URLEncoding.EncodeToString(b), nil
 }

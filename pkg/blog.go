@@ -101,7 +101,9 @@ func Init(
 }
 
 // Cleanup flushes the log write buffer and exits the logger. If timeout is 0, Cleanup blocks indefinitely.
-func Cleanup(timeout time.Duration) error { return a(func() { instance.Shutdown(timeout) }) }
+func Cleanup(timeout time.Duration) error {
+	return a(func() { time.Sleep(20 * time.Millisecond); instance.Shutdown(timeout) })
+}
 
 // ==== Logging Functions ===
 

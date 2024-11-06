@@ -133,16 +133,21 @@ func NewLogger(cfg Config, msgChanSize int, LocationSkip int) (*Logger, error) {
 
 // Shutdown synchronously flushes and waits for the logger to shutdown it's goroutine for the given timeout duration.
 // A timeout of 0 means block indefinitely.
+// You may want to time.Sleep(20 * time.Millisecond) before calling this function to ensure all log messages are buffered.
 func (l *Logger) Shutdown(timeout time.Duration) error {
 	done := make(chan struct{})
 	l.shutdownChan <- done
+	if timeout == 0 {
+		<-done
+		return nil
+	}
 	select {
 	case <-done:
 	case <-time.After(timeout):
 	}
 	l.runningMutex.Lock()
 	defer l.runningMutex.Unlock()
-	return Ternary(l.running, fmt.Errorf("failed to shutdown logger"), nil)
+	return Ternary(l.running, fmt.Errorf("logger failed to shutdown in time"), nil)
 }
 
 // Start restarts the logger goroutine after a shutdown.
@@ -307,6 +312,14 @@ func (l *Logger) handleFileOverflow() (*os.File, error) {
 	// Create a new name for the current log file
 	timestamp := time.Now().Format("2006-01-02_15-04-05")
 	path := filepath.Join(*l.config.DirectoryPath, timestamp+".log")
+	// If path already exists, add a random string suffix to the timestamp
+	if _, err := os.Stat(path); err == nil {
+		randomString, err := GenRandomString(8)
+		if err != nil {
+			return nil, err
+		}
+		path = filepath.Join(*l.config.DirectoryPath, timestamp+"_"+randomString+".log")
+	}
 	// Rename latest.log to the current timestamp
 	if err := os.Rename(l.getLatestPath(), path); err != nil {
 		return nil, err
