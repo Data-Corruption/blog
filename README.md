@@ -20,7 +20,9 @@ go get github.com/Data-Corruption/blog/v2
 Basic Example:
 
 ```go
-import "github.com/Data-Corruption/blog/v2/pkg"
+import (
+  blog "github.com/Data-Corruption/blog/v2/pkg"
+)
 
 func main() {
   // Init blog.
