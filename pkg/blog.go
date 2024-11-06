@@ -94,9 +94,10 @@ func Init(
 	}
 	pathCopy := DirPath
 	levelCopy := Level
+	location := Ternary(IncludeLocation, 5, -1)
 	cout := Ternary(EnableConsole, &ConsoleLogger{l: log.New(os.Stdout, "", 0)}, nil)
 	var err error
-	instance, err = NewLogger(Config{Level: &levelCopy, DirectoryPath: &pathCopy, ConsoleOut: cout}, 255, 2)
+	instance, err = NewLogger(Config{Level: &levelCopy, DirectoryPath: &pathCopy, ConsoleOut: cout}, 255, location)
 	return err
 }
 

@@ -143,13 +143,8 @@ func TestShutdown(t *testing.T) {
 // At this point we know we can stop the goroutine and safely inspect the logger state after doing so.
 
 // TODO - parallel tests
-// - Test console output / formatting - do in a way so we can reuse when testing public instance
-// - Test file output / formatting
 // - Test log level filtering
-// - Test log rotation
 // - Test console fallback. call fallbackToConsole(), ensure it's no longer writing to file and only to stdout or test buf
-
-// test public instance
 
 func TestParallelTests(t *testing.T) {
 	t.Run("ConsoleOutput", func(t *testing.T) {
@@ -275,5 +270,20 @@ func TestParallelTests(t *testing.T) {
 		if len(files) != 3 {
 			t.Errorf("len(files) = %d; want 3; Path: %s", len(files), dirPath)
 		}
+	})
+
+	t.Run("Location", func(t *testing.T) {
+		t.Parallel()
+
+		if err := Init("", DEBUG, true, true); err != nil {
+			log.Printf("Error initializing logger: %v", err)
+		}
+
+		// not sure how to test this yet
+
+		// Log messages from anywhere in the program
+		Debug("This is a debug message.")
+		time.Sleep(100 * time.Millisecond)
+		Cleanup(0)
 	})
 }
