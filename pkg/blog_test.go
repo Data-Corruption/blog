@@ -1,133 +1,50 @@
 package blog
 
 import (
-	"bytes"
 	"errors"
-	"log"
-	"os"
-	"path/filepath"
-	"regexp"
-	"strings"
-	"sync"
 	"testing"
 	"time"
 )
 
-// Variables ==================================================================
+/*
 
-var (
-	tempDir = ""
-)
+
+tempDir, err = os.MkdirTemp("", "example")
+
+
+parallel test example:
+
+func TestFirst(t *testing.T) {
+  // Run sequentially
+  t.Log("Running first test")
+}
+
+func TestSecond(t *testing.T) {
+  // Run sequentially
+  t.Log("Running second test")
+}
+
+func TestParallelTests(t *testing.T) {
+  t.Run("ParallelTest1", func(t *testing.T) {
+    t.Parallel()
+    t.Log("Running ParallelTest1")
+    // Use t like normal here
+  })
+
+  t.Run("ParallelTest2", func(t *testing.T) {
+    t.Parallel()
+    t.Log("Running ParallelTest2")
+    // Use t like normal here
+  })
+}
+
+*/
 
 // Helper functions ===========================================================
 
-// createTempDir creates a temporary directory and stores its path in the tempDir variable.
-func createTempDir() {
-	// Create a temporary directory.
-	var err error
-	tempDir, err = os.MkdirTemp("", "example")
-	if err != nil {
-		log.Fatal(err)
-	}
-}
-
-// cleanupTempDir removes the temporary directory
-func cleanupTempDir() {
-	os.RemoveAll(tempDir)
-}
-
-// normalStartup puts the package in a normal startup state.
-func normalStartup() {
-	reset()
-	cleanupTempDir()
-	createTempDir()
-	if err := Init(tempDir, INFO); err != nil {
-		log.Fatalf("Init(%s, INFO) = %v; want nil", tempDir, err)
-	}
-}
-
-// stripTimestamp removes the timestamp from a log line.
-func stripTimestamp(line string) (string, error) {
-	// Find the index of the first comma.
-	firstComma := strings.Index(line, ",")
-	if firstComma == -1 {
-		return "", errors.New("not enough commas in log line")
-	}
-
-	// Find the index of the second comma, starting the search just after the first comma.
-	secondComma := strings.Index(line[firstComma+1:], ",")
-	if secondComma == -1 {
-		return "", errors.New("not enough commas in log line")
-	}
-
-	// Return the part of the string after the second comma.
-	return line[firstComma+1+secondComma+1:], nil
-}
-
-// stripFirstLine removes the first line from a string. It returns an error if the string does not contain a newline character.
-func stripFirstLine(s string) (string, error) {
-	// Find the index of the first newline character.
-	newlineIndex := strings.Index(s, "\n")
-
-	// If there's no newline, return an error.
-	if newlineIndex == -1 {
-		return "", errors.New("no newline character in string")
-	}
-
-	// Return the string after the first newline.
-	return s[newlineIndex+1:], nil
-}
-
-// latestContainsData returns true if the latest log file exists and is not empty, false otherwise.
-func latestContainsData() bool {
-	// Check if the latest log file exists.
-	if _, err := os.Stat(filepath.Join(tempDir, "latest.log")); err != nil {
-		return false
-	}
-
-	// Check if the latest log file is empty.
-	info, err := os.Stat(filepath.Join(tempDir, "latest.log"))
-	if err != nil {
-		return false
-	}
-	return info.Size() != 0
-}
-
-// getCopyOfInstance returns a copy of the current logger instance.
-// The purpose of this is to allow reading state without blocking the run goroutine.
-func getCopyOfInstance() logger {
-	reqStateChan <- struct{}{}
-	return <-resStateChan
-}
-
-// reset shuts down the run goroutine and resets all variables.
-func reset() {
-	if instance == nil {
-		return
-	}
-	close(runExitChan)
-	runWaitGroup.Wait()
-	instance = nil
-	// reset run channels and wait group
-	flushChan = make(chan struct{})
-	logMsgChan = make(chan message, defaultMaxMsgChanBufSize)
-	updateLevel = make(chan LogLevel)
-	updateUseConsole = make(chan bool)
-	updateMaxWriteBufSize = make(chan int)
-	updateMaxFileSize = make(chan int)
-	updateFlushInterval = make(chan time.Duration)
-	updateDirPath = make(chan string)
-	syncFlushChan = make(chan struct{})
-	syncFlushDone = make(chan struct{})
-	syncFlushMutex = sync.Mutex{}
-	reqStateChan = make(chan struct{})
-	resStateChan = make(chan logger)
-	runExitChan = make(chan struct{})
-	runWaitGroup = sync.WaitGroup{}
-}
-
 // Tests ======================================================================
 
+// TestLogLevelFromString tests the .FromString method of the LogLevel type.
 func TestLogLevelFromString(t *testing.T) {
 	tests := []struct {
 		input         string
@@ -136,24 +53,25 @@ func TestLogLevelFromString(t *testing.T) {
 	}{
 		{"none", NONE, nil},
 		{"NONE", NONE, nil},
-		{"ERROR", ERROR, nil},
-		{"erR", ERROR, nil},
+		{"ERrOR", ERROR, nil},
 		{"WARN", WARN, nil},
 		{"INFO", INFO, nil},
-		{"DEBUG", DEBUG, nil},
+		{"DeBUG", DEBUG, nil},
 		{"FATAL", FATAL, nil},
-		{"invalid", NONE, ErrInvalidLogLevel},
+		{"invAlid", NONE, ErrInvalidLogLevel},
 		{"", NONE, ErrInvalidLogLevel},
 	}
 	for _, test := range tests {
-		level, ok := LogLevelFromString(test.input)
-		if level != test.expectedLevel || ok != test.expectedErr {
-			t.Errorf("LogLevelFromString(%s) = %v, %v; want %v, %v", test.input, level, ok, test.expectedLevel, test.expectedErr)
+		var level LogLevel
+		actualErr := level.FromString(test.input)
+		if level != test.expectedLevel || actualErr != test.expectedErr {
+			t.Errorf("LogLevel FromString(%s) = %v, %v; want %v, %v", test.input, level, actualErr, test.expectedLevel, test.expectedErr)
 		}
 	}
 }
 
-func TestLogLevelToString(t *testing.T) {
+// TestLogLevelString tests the .String method of the LogLevel type.
+func TestLogLevelString(t *testing.T) {
 	tests := []struct {
 		input    LogLevel
 		expected string
@@ -167,13 +85,14 @@ func TestLogLevelToString(t *testing.T) {
 		{LogLevel(100), "?"},
 	}
 	for _, test := range tests {
-		actual := test.input.toString()
+		actual := test.input.String()
 		if actual != test.expected {
 			t.Errorf("LogLevelToString(%v) = %s; want %s", test.input, actual, test.expected)
 		}
 	}
 }
 
+// TestPadString tests the PadString function.
 func TestPadString(t *testing.T) {
 	tests := []struct {
 		input    string
@@ -190,12 +109,54 @@ func TestPadString(t *testing.T) {
 		{"abc", 5, "abc  "},
 	}
 	for _, test := range tests {
-		actual := padString(test.input, test.length)
+		actual := PadString(test.input, test.length)
 		if actual != test.expected {
 			t.Errorf("padString(%s, %d) = %s; want %s", test.input, test.length, actual, test.expected)
 		}
 	}
 }
+
+func TestInit(t *testing.T) {
+	path := ""
+	level := INFO
+	instance, err := NewLogger(Config{Level: &level, DirectoryPath: &path}, 255, 2)
+	if err != nil {
+		t.Errorf("NewLogger(Config{Level: &level, DirectoryPath: &path}, 255, 2) = %v; want nil", err)
+	}
+	instance.Shutdown(time.Second)
+}
+
+func TestInvalidDirectoryPath(t *testing.T) {
+	// set path to a invalid directory not allowed on win or linux
+	path := "/foo/bar/<>:\"/\\|?*"
+	level := INFO
+	_, err := NewLogger(Config{Level: &level, DirectoryPath: &path}, 255, 2)
+	if !errors.Is(err, ErrInvalidPath) {
+		t.Errorf("NewLogger(Config{Level: &level, DirectoryPath: &path}, 255, 2) = %v; want ErrInvalidPath", err)
+	}
+}
+
+func TestShutdown(t *testing.T) {
+	path := ""
+	level := INFO
+	instance, _ := NewLogger(Config{Level: &level, DirectoryPath: &path}, 255, 2)
+	time.Sleep(100 * time.Millisecond)
+	err := instance.Shutdown(time.Second)
+	if err != nil {
+		t.Errorf("instance.Shutdown(time.Second) = %v; want nil", err)
+	}
+}
+
+// At this point we know we can stop the goroutine and safely inspect the logger state after doing so.
+
+// TODO - parallel tests
+// - Test console output / formatting
+// - Test file output / formatting
+// - Test log level filtering
+// - Test log rotation
+// - Test console fallback
+
+/*
 
 func TestInvalidInitArgs(t *testing.T) {
 	// Create a temporary directory.
@@ -528,34 +489,6 @@ func TestMaxWriteSize(t *testing.T) {
 	if !latestContainsData() {
 		t.Errorf("Should have flushed by now")
 	}
-}
-
-/*
-
-parallel test example:
-
-func TestFirst(t *testing.T) {
-  // Run sequentially
-  t.Log("Running first test")
-}
-
-func TestSecond(t *testing.T) {
-  // Run sequentially
-  t.Log("Running second test")
-}
-
-func TestParallelTests(t *testing.T) {
-  t.Run("ParallelTest1", func(t *testing.T) {
-    t.Parallel()
-    t.Log("Running ParallelTest1")
-    // Use t like normal here
-  })
-
-  t.Run("ParallelTest2", func(t *testing.T) {
-    t.Parallel()
-    t.Log("Running ParallelTest2")
-    // Use t like normal here
-  })
 }
 
 */

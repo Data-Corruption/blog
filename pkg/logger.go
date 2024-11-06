@@ -2,6 +2,7 @@ package blog
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -118,11 +119,26 @@ type LogMessage struct {
 // Returns an error if the log directory path cannot be set.
 func NewLogger(cfg Config, msgChanSize int, LocationSkip int) (*Logger, error) {
 	// Set default values for any nil fields in the configuration.
-	SetIfNil(&cfg.Level, INFO)
-	SetIfNil(&cfg.MaxBufferSizeBytes, MaxBufferSizeBytes)
-	SetIfNil(&cfg.FlushInterval, FlushInterval)
-	SetIfNil(&cfg.MaxFileSizeBytes, MaxLogFileSizeBytes)
-	SetIfNil(&cfg.DirectoryPath, "")
+	if cfg.Level == nil {
+		defaultLogLevel := INFO
+		cfg.Level = &defaultLogLevel
+	}
+	if cfg.MaxBufferSizeBytes == nil {
+		defaultMaxBufferSizeBytes := MaxBufferSizeBytes
+		cfg.MaxBufferSizeBytes = &defaultMaxBufferSizeBytes
+	}
+	if cfg.MaxFileSizeBytes == nil {
+		defaultMaxLogFileSizeBytes := MaxLogFileSizeBytes
+		cfg.MaxFileSizeBytes = &defaultMaxLogFileSizeBytes
+	}
+	if cfg.FlushInterval == nil {
+		defaultFlushInterval := FlushInterval
+		cfg.FlushInterval = &defaultFlushInterval
+	}
+	if cfg.DirectoryPath == nil {
+		defaultDirectoryPath := ""
+		cfg.DirectoryPath = &defaultDirectoryPath
+	}
 	if cfg.ConsoleOut == nil {
 		cfg.ConsoleOut = &ConsoleLogger{}
 	}
@@ -142,7 +158,7 @@ func NewLogger(cfg Config, msgChanSize int, LocationSkip int) (*Logger, error) {
 
 	// Set the log directory path
 	if err := l.setPath(*l.config.DirectoryPath); err != nil {
-		return nil, fmt.Errorf("failed to set log directory path: %w", err)
+		return nil, errors.Join(ErrInvalidPath, err)
 	}
 
 	// Start the logger goroutine
@@ -408,6 +424,9 @@ func (l *Logger) run() {
 		case done := <-l.shutdownChan:
 			l.flush()
 			done <- struct{}{}
+			l.runningMutex.Lock()
+			l.running = false
+			l.runningMutex.Unlock()
 			return
 		case resp := <-l.getConfigChan:
 			resp <- l.config

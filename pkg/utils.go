@@ -2,12 +2,6 @@ package blog
 
 import "strings"
 
-func SetIfNil[T any](ptr **T, value T) {
-	if *ptr == nil {
-		*ptr = &value
-	}
-}
-
 // CopyNotNil copies the value of src to dst if src is not nil.
 func CopyNotNil[T any](dst, src *T) {
 	if src != nil {
