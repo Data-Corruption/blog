@@ -33,7 +33,8 @@ func main() {
   //   - IncludeLocation: When true, adds source file and line number to log messages (e.g., "main.go:42").
   //   - EnableConsole: When true, enables logging to the console in addition to files.
   //
-  if err := blog.Init("logs", blog.INFO, false, true); err != nil {
+  var err error
+  if err = blog.Init("logs", blog.INFO, false, true); err != nil {
     log.Printf("Error initializing logger: %v", err)
   }
 
