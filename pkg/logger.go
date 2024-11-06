@@ -63,10 +63,6 @@ type Logger struct {
 	// Configuration settings.
 	config Config
 
-	// Base logger to avoid affecting the global logger. Default to &ConsoleLogger{log.New(os.Stdout, "", 0)}.
-	// Must remain valid for the lifetime of the logger. To disable console logging, set this to nil.
-	ConsoleOut *ConsoleLogger
-
 	// Number of stack frames to skip when including the location of the log message. Default is 2, -1 to disable.
 	LocationSkip int // not in config due to performance reasons
 
@@ -89,7 +85,7 @@ type Logger struct {
 
 // ConsoleLogger wraps *log.Logger to allow nil value semantics for disabled state
 type ConsoleLogger struct {
-	*log.Logger
+	l *log.Logger
 }
 
 // Config holds the configuration settings for the Logger.
@@ -99,6 +95,7 @@ type Config struct {
 	MaxFileSizeBytes   *int           // the maximum size of the log file before it is rotated. Default is 1 GB.
 	FlushInterval      *time.Duration // the interval at which the write buffer is flushed. Default is 15 seconds.
 	DirectoryPath      *string        // the directory path where the log file is stored. Default is the current working directory ("."). To disable file logging, set this to an empty string.
+	ConsoleOut         *ConsoleLogger // the logger to write to the console. Default is ConsoleLogger{l: nil}. When l is nil, console logging is disabled. This is configurable for easy testing.
 }
 
 // LogMessage represents a single log message.
@@ -116,23 +113,23 @@ type LogMessage struct {
 // The msgChanSize parameter controls the buffer size of the message channel,
 // where 0 means unbuffered. LocationSkip controls the number of stack frames
 // to skip when including the location in log messages (-1 to disable). For
-// normal usage, LocationSkip should be set to 2. The consoleOut parameter
-// defaults to log.New(os.Stdout, "", 0) if nil. It exists mainly for easy testing.
+// normal usage, LocationSkip should be set to 2.
 //
 // Returns an error if the log directory path cannot be set.
-func NewLogger(cfg Config, msgChanSize int, LocationSkip int, consoleOut *ConsoleLogger) (*Logger, error) {
+func NewLogger(cfg Config, msgChanSize int, LocationSkip int) (*Logger, error) {
 	// Set default values for any nil fields in the configuration.
 	SetIfNil(&cfg.Level, INFO)
 	SetIfNil(&cfg.MaxBufferSizeBytes, MaxBufferSizeBytes)
 	SetIfNil(&cfg.FlushInterval, FlushInterval)
 	SetIfNil(&cfg.MaxFileSizeBytes, MaxLogFileSizeBytes)
 	SetIfNil(&cfg.DirectoryPath, "")
-	SetIfNil(&consoleOut, ConsoleLogger{log.New(os.Stdout, "", 0)})
+	if cfg.ConsoleOut == nil {
+		cfg.ConsoleOut = &ConsoleLogger{}
+	}
 
 	// Create the logger instance.
 	l := &Logger{
 		config:        cfg,
-		ConsoleOut:    consoleOut,
 		LocationSkip:  LocationSkip,
 		running:       true,
 		messageChan:   make(chan LogMessage, msgChanSize),
@@ -254,8 +251,8 @@ func (l *Logger) qM(level LogLevel, exitCode int, format string, args ...any) {
 // fallbackToConsole disables file logging and enables console logging if not already enabled. Also passes the given error through.
 func (l *Logger) fallbackToConsole() {
 	*l.config.DirectoryPath = ""
-	if l.ConsoleOut == nil {
-		l.ConsoleOut = &ConsoleLogger{log.New(os.Stdout, "", 0)}
+	if l.config.ConsoleOut.l == nil {
+		l.config.ConsoleOut = &ConsoleLogger{log.New(os.Stdout, "", 0)}
 	}
 }
 
@@ -307,8 +304,8 @@ func (l *Logger) handleMessage(m LogMessage) {
 		}
 	}
 	// If console logging is enabled, write the message to the console
-	if l.ConsoleOut != nil {
-		l.ConsoleOut.Print(m.content)
+	if l.config.ConsoleOut.l != nil {
+		l.config.ConsoleOut.l.Print(m.content)
 	}
 	if m.level == FATAL {
 		l.flush()
@@ -342,8 +339,8 @@ func (l *Logger) handleFileOverflow() (*os.File, error) {
 func (l *Logger) handleFlushError(err error) {
 	l.fallbackToConsole()
 	// print the remaining write buffer to the console
-	l.ConsoleOut.Print("Failed to write to log file: " + err.Error() + "\n")
-	l.ConsoleOut.Print(l.writeBuffer.String())
+	l.config.ConsoleOut.l.Print("Failed to write to log file: " + err.Error() + "\n")
+	l.config.ConsoleOut.l.Print(l.writeBuffer.String())
 	l.writeBuffer.Reset()
 }
 
@@ -424,6 +421,9 @@ func (l *Logger) run() {
 			}
 			if cfg.DirectoryPath != nil {
 				l.setPath(*cfg.DirectoryPath)
+			}
+			if cfg.ConsoleOut != nil {
+				l.config.ConsoleOut.l = cfg.ConsoleOut.l
 			}
 		}
 	}

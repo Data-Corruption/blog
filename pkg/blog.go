@@ -1,11 +1,17 @@
 /*
-Package blog implements a simple, thread-safe singleton logger.
-It supports various log levels and can write to files or the console.
+Package blog is a simple async logger with file rotation and console logging.
 
 Usage:
 
-	// Init the logger with a dir path(or "" to disable file logging), a log level, and whether to include line numbers.
-	if err := blog.Init("logs", blog.INFO, false); err != nil {
+	// Init blog.
+	//
+	// Parameters:
+	//   - DirPath: Path for log files. "." for current working directory or "" to disable file logging.
+	//   - Level: Desired logging level for filtering messages.
+	//   - IncludeLocation: When true, adds source file and line number to log messages (e.g., "main.go:42").
+	//   - EnableConsole: When true, enables logging to the console in addition to files.
+	//
+	if err := blog.Init("logs", blog.INFO, false, true); err != nil {
 		log.Printf("Error initializing logger: %v", err)
 	}
 
@@ -13,53 +19,46 @@ Usage:
 	blog.Info("This is an info message.")
 
 	// Log messages with formatting
-	blog.Infof("This is an info message with a format string: %v", err)
+	blog.Warnf("This is an warn message with a format string: %v", err)
 
-	// Log a fatal message and exit with the given exit code
-	blog.Fatalf(1, 0, "This is a fatal message with a format string: %v", err)
-
-	// Manually flush the log write buffer
-	blog.Flush()
-
-	// Synchronously flush the log write buffer with a timeout; 0 means block indefinitely
-	blog.SyncFlush(0)
-
-	// Synchronously cleanup the logger with a timeout; 0 means block indefinitely
+	// Synchronously cleanup the logger with a timeout; 0 means block indefinitely.
+	// This should be called at the end of the program.
 	blog.Cleanup(0)
 
-The logger can be configured with the following functions at any time:
-  - SetLevel(LogLevel) sets the log level.
-  - SetUseConsole(bool) sets whether or not to log to the console.
-  - SetDirPath(string) sets the directory path for the log files. If dirPath is empty, the current working directory is used.
-  - SetMaxWriteBufSize(int) sets the maximum size(in bytes) of the log write buffer.
-  - SetMaxFileSize(int) sets the maximum size(in bytes) of the log file before it is renamed and a new log file is created.
-  - SetFlushInterval(time.Duration) sets the interval at which the log write buffer is automatically flushed to the log file.
+	// for all other functions see `blog.go`. For access to the raw logger, see `logger.go`.
 
-Performance Notes:
-  - Default max buf and file size are 4 KB and 1 GB respectively. The default flush interval is 15 seconds.
-  - A single thread is used to handle all logging operations.
-    The channel that feeds it messages is buffered to 255 via a constant. If the buffer becomes full, log funcs will block.
-    This shouldn't be an issue as if the flush fails for whatever reason, the logger will fall back to console logging.
-    Worst case, you parallel log in mass and the blocking becomes a bottleneck.
+# Performance Notes
 
-For contributors:
+Defaults; All of these are modifiable at runtime via the public functions:
+  - Max buffer size:   4 KB.
+  - Max log file size: 1 GB. When this is reached the file is rotated.
+  - Flush interval:    15 seconds. For automatic flushing in low traffic scenarios.
 
-	The approach is pretty straightforward. The logger is a type with a bunch of channels for communication and vars for configuration.
-	When created it starts a goroutine that listens for messages/config updates via the chans then handles them.
-	The public functions don't interact with the logger directly, they do so using the channels.
+A single thread is used to handle all logging operations.
+The channel that feeds it messages is buffered to 255 in the instance managed by the public functions.
+If you need control over it, you can create your own instance of the raw logger. Note interfacing with
+the raw logger is is different from the simplified public functions.
 
-	Tests should create their own logger instances using newLogger() then use the 'r' prefixed member functions to interact with it.
-	newLogger() lets you set the output writer for testing purposes. The public Init sets it to os.Stdout
-	The public functions create and use a singleton instance of the logger.
+# For contributors
 
-	This has some nice benefits:
-	- Easily test multiple logger instances in parallel.
-	- Users don't need to manage the logger instance themselves.
+The approach is pretty straightforward. There is a slightly lower abstraction level logger in logger.go.
+This file creates and manages an instance of it for the common use case of a high abstraction singleton logger.
+
+The logger is a struct with a few channels for communication and vars for configuration.
+When created it starts a goroutine that listens for messages/config updates via the chans then handles them.
+The logger's public functions don't interact with it's state directly, they do so through the channels.
+This makes it thread-safe and more performant, as relying on go's event system is better than mutexes in this case.
+
+This has some nice benefits:
+  - Easily test multiple logger instances in parallel.
+  - Users don't need to manage the logger instance themselves.
 */
 package blog
 
 import (
 	"fmt"
+	"log"
+	"os"
 	"time"
 )
 
@@ -73,27 +72,36 @@ var (
 	instance *Logger = nil
 )
 
-// Init sets up the logger with the specified directory path and log level.
-// It returns an error if called more than once or if the directory path is invalid.
-// On error, logging falls back to the console. See ErrAlreadyInitialized and ErrInvalidPath.
-func Init(dirPath string, level LogLevel, includeLocation, enableConsole bool) error {
+// Init sets up the logger with the specified configuration parameters.
+//
+// Parameters:
+//   - DirPath: Directory path for log files. Use "." for current working directory or "" to disable file logging.
+//   - Level: Desired logging level for filtering messages.
+//   - IncludeLocation: When true, adds source file and line number to log messages (e.g., "main.go:42").
+//   - EnableConsole: When true, enables logging to the console in addition to files.
+//
+// Returns:
+//   - ErrAlreadyInitialized if logger was previously initialized,
+//   - ErrInvalidPath if the directory path is invalid for any reason,
+func Init(
+	DirPath string,
+	Level LogLevel,
+	IncludeLocation bool,
+	EnableConsole bool,
+) error {
 	if instance != nil {
 		return ErrAlreadyInitialized
 	}
-	pathCopy := dirPath
-	levelCopy := level
+	pathCopy := DirPath
+	levelCopy := Level
+	cout := Ternary(EnableConsole, &ConsoleLogger{l: log.New(os.Stdout, "", 0)}, nil)
 	var err error
-	instance, err = NewLogger(Config{Level: &levelCopy, DirectoryPath: &pathCopy}, 255, 2, nil)
+	instance, err = NewLogger(Config{Level: &levelCopy, DirectoryPath: &pathCopy, ConsoleOut: cout}, 255, 2)
 	return err
 }
 
 // Cleanup flushes the log write buffer and exits the logger. If timeout is 0, Cleanup blocks indefinitely.
-func Cleanup(timeout time.Duration) error {
-	if err := instanceGuard(); err != nil {
-		return err
-	}
-	return instance.Shutdown(timeout)
-}
+func Cleanup(timeout time.Duration) error { return a(func() { instance.Shutdown(timeout) }) }
 
 // ==== Logging Functions ===
 
