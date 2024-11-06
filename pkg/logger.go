@@ -257,8 +257,10 @@ func (l *Logger) qM(level LogLevel, exitCode int, format string, args ...any) {
 		content:   fmt.Sprintf(format, args...),
 	}
 	if l.LocationSkip != -1 {
-		if _, file, line, ok := runtime.Caller(l.LocationSkip); ok {
-			m.location = fmt.Sprintf("%s:%d", file, line)
+		if (level == FATAL) || (level == ERROR) || (level == DEBUG) {
+			if _, file, line, ok := runtime.Caller(l.LocationSkip); ok {
+				m.location = fmt.Sprintf("%s:%d", filepath.Base(file), line)
+			}
 		}
 	}
 	l.messageChan <- m
@@ -308,7 +310,7 @@ func (l *Logger) handleMessage(m LogMessage) {
 	prefix = PadString(prefix, 28)
 	// Add location if it exists
 	if m.location != "" {
-		prefix += " " + m.location + " "
+		prefix += "[" + m.location + "] "
 	}
 	// Format the message
 	m.content = prefix + m.content + "\n"

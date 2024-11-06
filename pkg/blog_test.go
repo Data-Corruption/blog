@@ -12,6 +12,14 @@ import (
 
 // Helper functions ===========================================================
 
+func normalInit(path string) (*Logger, *bytes.Buffer, error) {
+	level := INFO
+	buf := &bytes.Buffer{}
+	cl := &ConsoleLogger{l: log.New(buf, "", 0)}
+	instance, err := NewLogger(Config{Level: &level, DirectoryPath: &path, ConsoleOut: cl}, 255, 2)
+	return instance, buf, err
+}
+
 // Tests ======================================================================
 
 // TestLogLevelFromString tests the .FromString method of the LogLevel type.
@@ -102,7 +110,7 @@ func TestInvalidDirectoryPath(t *testing.T) {
 	level := INFO
 	_, err := NewLogger(Config{Level: &level, DirectoryPath: &path}, 255, 2)
 	if !errors.Is(err, ErrInvalidPath) {
-		t.Errorf("NewLogger(Config{Level: &level, DirectoryPath: &path}, 255, 2) = %v; want ErrInvalidPath", err)
+		t.Errorf("NewLogger() = %v; when given an invalid path, want ErrInvalidPath", err)
 	}
 }
 
@@ -132,15 +140,9 @@ func TestParallelTests(t *testing.T) {
 	t.Run("ConsoleOutput", func(t *testing.T) {
 		t.Parallel()
 
-		// buffer to capture output
-		var buf bytes.Buffer
-		cl := &ConsoleLogger{l: log.New(&buf, "", 0)}
-
-		path := ""
-		level := INFO
-		instance, err := NewLogger(Config{Level: &level, DirectoryPath: &path, ConsoleOut: cl}, 255, 2)
+		instance, buf, err := normalInit("")
 		if err != nil {
-			t.Errorf("NewLogger(Config{Level: &level, DirectoryPath: &path, ConsoleOut: cl}, 255, 2) = %v; want nil", err)
+			t.Errorf("Error during normalInit: %v", err)
 		}
 
 		testMsg := "This is a test"
