@@ -131,6 +131,12 @@ func SetLevel(level LogLevel) error {
 	return a(func() { instance.UpdateConfig(Config{Level: &level}) })
 }
 
+// SetConsole enables or disables console logging.
+func SetConsole(enabled bool) error {
+	cl := &ConsoleLogger{l: Ternary(enabled, log.New(os.Stdout, "", 0), nil)}
+	return a(func() { instance.UpdateConfig(Config{ConsoleOut: cl}) })
+}
+
 // ==== Buffer controls ====
 
 // Flush manually flushes the log write buffer.

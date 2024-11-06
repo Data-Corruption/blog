@@ -22,50 +22,13 @@ const (
 /*
 Logger is a simple, thread-safe logger. It supports various log levels, file and or
 console logging, basic performance tuning, automatic flushing, and size based log rotation.
-
-Usage:
-
-	// Create a new instance that outputs to os.Stdout with default settings, a 255 message buffer size, and a 2 stack frame skip.
-	var err error
-	var logger *blog.Logger
-	if logger, err = blog.NewLogger(blog.Config{}, 255, 2, nil); err != nil {
-		log.Printf("Error creating logger: %v", err)
-	}
-
-	// Log messages
-	logger.Info("This is an info message.")
-	logger.Infof("This is an info message with a format string: %v", err)
-
-	// Log a fatal message and exit with the given exit code
-	logger.Fatalf(1, 0, "This is a fatal message with a format string: %v", err)
-
-	// Get the current logger configuration
-	config := logger.GetConfigCopy()
-
-	// Update a configuration settings at any time
-	newLevel := blog.DEBUG
-	logger.UpdateConfig(blog.Config{ Level: &newLevel }) // nil fields are ignored
-
-	// Manually flush the log write buffer
-	logger.Flush()
-
-	// Synchronously flush the log write buffer with a timeout; 0 means block indefinitely
-	logger.SyncFlush(0)
-
-	// Synchronously flush and shutdown the logger with a timeout; 0 means block indefinitely
-	logger.Shutdown(0)
-
-Performance Notes:
-
-  - Default max buf and file size are 4 KB and 1 GB respectively. The default flush interval is 15 seconds.
-  - A single thread is used to handle all logging operations. This is generally fine for most applications.
 */
 type Logger struct {
 	// Configuration settings.
 	config Config
 
 	// Number of stack frames to skip when including the location of the log message. Default is 2, -1 to disable.
-	LocationSkip int // not in config due to performance reasons
+	locationSkip int // not configurable after creation for performance reasons
 
 	// Buffer for messages before they are written to console or file.
 	writeBuffer bytes.Buffer
@@ -78,7 +41,7 @@ type Logger struct {
 	getConfigChan chan chan Config
 	setConfigChan chan Config // nil fields are ignored
 
-	messageChan   chan LogMessage // buffered to prevent blocking on high-frequency logging.
+	messageChan   chan LogMessage
 	flushSignal   chan struct{}
 	syncFlushChan chan chan struct{}
 	shutdownChan  chan chan struct{}
@@ -146,7 +109,7 @@ func NewLogger(cfg Config, msgChanSize int, LocationSkip int) (*Logger, error) {
 	// Create the logger instance.
 	l := &Logger{
 		config:        cfg,
-		LocationSkip:  LocationSkip,
+		locationSkip:  LocationSkip,
 		running:       true,
 		messageChan:   make(chan LogMessage, msgChanSize),
 		getConfigChan: make(chan chan Config),
@@ -256,9 +219,9 @@ func (l *Logger) qM(level LogLevel, exitCode int, format string, args ...any) {
 		location:  "",
 		content:   fmt.Sprintf(format, args...),
 	}
-	if l.LocationSkip != -1 {
+	if l.locationSkip != -1 {
 		if (level == FATAL) || (level == ERROR) || (level == DEBUG) {
-			if _, file, line, ok := runtime.Caller(l.LocationSkip); ok {
+			if _, file, line, ok := runtime.Caller(l.locationSkip); ok {
 				m.location = fmt.Sprintf("%s:%d", filepath.Base(file), line)
 			}
 		}
