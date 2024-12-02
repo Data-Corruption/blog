@@ -3,16 +3,8 @@ name: Tests
 on:
   push:
     branches: [ main ]
-    paths:
-      - 'blog.go'
-      - 'blog_test.go'
-      - '.github/workflows/tests.yml'
   pull_request:
     branches: [ main ]
-    paths:
-      - 'blog.go'
-      - 'blog_test.go'
-      - '.github/workflows/tests.yml'
 
 jobs:
   build:
