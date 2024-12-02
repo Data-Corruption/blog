@@ -205,6 +205,7 @@ func (l *Logger) Debugf(format string, args ...any) { l.qM(DEBUG, 0, format, arg
 func (l *Logger) Fatal(exitCode int, timeout time.Duration, msg string) {
 	l.qM(FATAL, exitCode, msg)
 	time.Sleep(timeout)
+	fmt.Printf("Fatal message failed to log in time: %s\n", msg)
 	os.Exit(exitCode)
 }
 

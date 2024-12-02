@@ -1,5 +1,11 @@
 # Changelog for "blog" project
 
+## [v2.0.2] - 2024-07-21
+
+### Added
+
+- **Fatal Fix:** Fatal and Fatalf will now print the msg to console in the event they fail the timeout.
+
 ## [v2.0.0] - 2024-07-21
 
 ### Added

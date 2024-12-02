@@ -1,3 +1,5 @@
+// To run all test run the following in the project root:
+// go test -v ./pkg
 package blog
 
 import (
@@ -142,7 +144,7 @@ func TestShutdown(t *testing.T) {
 
 // At this point we know we can stop the goroutine and safely inspect the logger state after doing so.
 
-// TODO - parallel tests
+// TODO:
 // - Test log level filtering
 // - Test console fallback. call fallbackToConsole(), ensure it's no longer writing to file and only to stdout or test buf
 
