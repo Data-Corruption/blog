@@ -1,5 +1,12 @@
 # Changelog for "blog" project
 
+## [v3.0.0] - 2025-02-09
+
+### Changed
+
+- **Refactor:** Rewrote a few functions and reorganized the codebase into separate packages for better organization and maintainability.
+- **Simplified Import:** It's now `"github.com/Data-Corruption/blog/v3"`.
+
 ## [v2.0.2] - 2024-07-21
 
 ### Added

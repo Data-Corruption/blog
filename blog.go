@@ -9,7 +9,7 @@ Usage:
 	//   - DirPath: Path for log files. "." for current working directory or "" to disable file logging.
 	//   - Level: Desired logging level for filtering messages.
 	//   - IncludeLocation: When true, adds source file and line number to log messages (e.g., "main.go:42").
-	//   - EnableConsole: When true, enables logging to the console in addition to files.
+	//   - EnableConsole: When true, enables logging to the console in addition to file.
 	//
 	if err := blog.Init("logs", blog.INFO, false, true); err != nil {
 		log.Printf("Error initializing logger: %v", err)
@@ -25,7 +25,7 @@ Usage:
 	// This should be called at the end of the program.
 	blog.Cleanup(0)
 
-	// for all other functions see `blog.go`. For access to the raw logger, see `logger.go`.
+	// for all other functions see `blog.go`. For access to the raw logger, see the other internal packages.
 
 # Performance Notes
 
@@ -41,7 +41,7 @@ the raw logger is is different from the simplified public functions.
 
 # For contributors
 
-The approach is pretty straightforward. There is a slightly lower abstraction level logger in logger.go.
+The approach is pretty straightforward. There is a slightly lower abstraction level logger in the logger package.
 This file creates and manages an instance of it for the common use case of a high abstraction singleton logger.
 
 The logger is a struct with a few channels for communication and vars for configuration.
@@ -60,6 +60,11 @@ import (
 	"log"
 	"os"
 	"time"
+
+	"github.com/Data-Corruption/blog/v3/internal/config"
+	"github.com/Data-Corruption/blog/v3/internal/level"
+	"github.com/Data-Corruption/blog/v3/internal/logger"
+	"github.com/Data-Corruption/blog/v3/internal/utils"
 )
 
 var (
@@ -69,7 +74,7 @@ var (
 	ErrShutdown           = fmt.Errorf("blog: logger has been shut down")
 	ErrInvalidPath        = fmt.Errorf("blog: invalid path")
 
-	instance *Logger = nil
+	instance *logger.Logger = nil
 )
 
 // Init sets up the logger with the specified configuration parameters.
@@ -85,7 +90,7 @@ var (
 //   - ErrInvalidPath if the directory path is invalid for any reason,
 func Init(
 	DirPath string,
-	Level LogLevel,
+	Level level.Level,
 	IncludeLocation bool,
 	EnableConsole bool,
 ) error {
@@ -94,10 +99,10 @@ func Init(
 	}
 	pathCopy := DirPath
 	levelCopy := Level
-	location := Ternary(IncludeLocation, 5, -1)
-	cout := Ternary(EnableConsole, &ConsoleLogger{l: log.New(os.Stdout, "", 0)}, nil)
+	location := utils.Ternary(IncludeLocation, 5, -1)
+	cout := utils.Ternary(EnableConsole, &config.ConsoleLogger{L: log.New(os.Stdout, "", 0)}, nil)
 	var err error
-	instance, err = NewLogger(Config{Level: &levelCopy, DirectoryPath: &pathCopy, ConsoleOut: cout}, 255, location)
+	instance, err = logger.NewLogger(&config.Config{Level: &levelCopy, DirectoryPath: &pathCopy, ConsoleOut: cout}, 255, location)
 	return err
 }
 
@@ -130,14 +135,14 @@ func Fatalf(exitCode int, timeout time.Duration, format string, args ...any) err
 }
 
 // SetLevel sets the log level.
-func SetLevel(level LogLevel) error {
-	return a(func() { instance.UpdateConfig(Config{Level: &level}) })
+func SetLevel(level level.Level) error {
+	return a(func() { instance.UpdateConfig(config.Config{Level: &level}) })
 }
 
 // SetConsole enables or disables console logging.
 func SetConsole(enable bool) error {
-	cl := &ConsoleLogger{l: Ternary(enable, log.New(os.Stdout, "", 0), nil)}
-	return a(func() { instance.UpdateConfig(Config{ConsoleOut: cl}) })
+	cl := &config.ConsoleLogger{L: utils.Ternary(enable, log.New(os.Stdout, "", 0), nil)}
+	return a(func() { instance.UpdateConfig(config.Config{ConsoleOut: cl}) })
 }
 
 // ==== Buffer controls ====
@@ -152,13 +157,13 @@ func SyncFlush(timeout time.Duration) error { return a(func() { instance.SyncFlu
 // SetMaxBufferSizeBytes sets the maximum size of the log write buffer. Larger values will increase memory
 // usage and reduce the frequency of disk writes.
 func SetMaxBufferSizeBytes(size int) error {
-	return a(func() { instance.UpdateConfig(Config{MaxBufferSizeBytes: &size}) })
+	return a(func() { instance.UpdateConfig(config.Config{MaxBufferSizeBytes: &size}) })
 }
 
 // SetFlushInterval sets the interval at which the log write buffer is automatically flushed to the log file.
 // This happens regardless of the buffer size. A value of 0 disables automatic flushing.
 func SetFlushInterval(d time.Duration) error {
-	return a(func() { instance.UpdateConfig(Config{FlushInterval: &d}) })
+	return a(func() { instance.UpdateConfig(config.Config{FlushInterval: &d}) })
 }
 
 // ==== File controls ====
@@ -166,12 +171,12 @@ func SetFlushInterval(d time.Duration) error {
 // SetMaxFileSizeBytes sets the maximum size of the log file. When the log file reaches
 // this size, it is renamed to the current timestamp and a new log file is created.
 func SetMaxFileSizeBytes(size int) error {
-	return a(func() { instance.UpdateConfig(Config{MaxFileSizeBytes: &size}) })
+	return a(func() { instance.UpdateConfig(config.Config{MaxFileSizeBytes: &size}) })
 }
 
 // SetDirectoryPath sets the directory path for the log files. To disable file logging, use an empty string.
 func SetDirectoryPath(path string) error {
-	return a(func() { instance.UpdateConfig(Config{DirectoryPath: &path}) })
+	return a(func() { instance.UpdateConfig(config.Config{DirectoryPath: &path}) })
 }
 
 // === helpers ===
@@ -181,10 +186,10 @@ func instanceGuard() error {
 	if instance == nil {
 		return ErrUninitialized
 	}
-	instance.runningMutex.Lock()
-	running := instance.running
-	instance.runningMutex.Unlock()
-	return Ternary(running, nil, ErrShutdown)
+	instance.RunningMutex.Lock()
+	running := instance.Running
+	instance.RunningMutex.Unlock()
+	return utils.Ternary(running, nil, ErrShutdown)
 }
 
 // a is a helper function for methods that don't return anything.
@@ -194,4 +199,28 @@ func a(f func()) error {
 	}
 	f()
 	return nil
+}
+
+// Re-exported for convenience / unified API.
+
+type Level int
+
+const (
+	NONE Level = iota
+	ERROR
+	WARN
+	INFO
+	DEBUG
+	FATAL
+)
+
+// String returns the string representation of a blog.Level
+func (l Level) String() string {
+	return level.Level(l).String()
+}
+
+// FromString sets a blog.Level from a case-insensitive string, returning ErrInvalidLogLevel if the string is invalid.
+func (l *Level) FromString(levelStr string) error {
+	ll := level.Level(*l)
+	return ll.FromString(levelStr)
 }

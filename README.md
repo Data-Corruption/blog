@@ -14,14 +14,14 @@ This project is born from a personal need for a performant logger and a desire t
 ## Getting Started
 
 ```sh
-go get github.com/Data-Corruption/blog/v2
+go get github.com/Data-Corruption/blog/v3
 ```
 
 Basic Example:
 
 ```go
 import (
-  blog "github.com/Data-Corruption/blog/v2/pkg"
+  "github.com/Data-Corruption/blog/v3"
 )
 
 func main() {
@@ -48,7 +48,7 @@ func main() {
   // This should be called at the end of the program.
   blog.Cleanup(0)
 
-  // for all other functions see `blog.go`. For access to the raw logger, see `logger.go`.
+  // for all other functions see `blog.go`. For access to the raw logger, see the other internal packages.
 }
 ```
 
