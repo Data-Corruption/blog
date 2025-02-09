@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/Data-Corruption/blog/v3/internal/config"
-	"github.com/Data-Corruption/blog/v3/internal/level"
+	LogLevel "github.com/Data-Corruption/blog/v3/internal/level"
 )
 
 // helper to return pointer values for simple types.
@@ -22,7 +22,7 @@ func TestLoggerConsole(t *testing.T) {
 	buf := new(bytes.Buffer)
 	config := &config.Config{
 		DirectoryPath: ptr(""),
-		Level:         ptr(level.INFO),
+		Level:         ptr(LogLevel.INFO),
 		ConsoleOut:    &config.ConsoleLogger{L: log.New(buf, "", 0)},
 	}
 	logInst, err := NewLogger(config, 255, 2)
@@ -56,7 +56,7 @@ func TestLoggerFile(t *testing.T) {
 	buf := new(bytes.Buffer)
 	config := &config.Config{
 		DirectoryPath: ptr(tempDir),
-		Level:         ptr(level.INFO),
+		Level:         ptr(LogLevel.INFO),
 		ConsoleOut:    &config.ConsoleLogger{L: log.New(buf, "", 0)},
 	}
 	logInst, err := NewLogger(config, 255, 2)
@@ -86,7 +86,7 @@ func TestLoggerLogLevelFiltering(t *testing.T) {
 	buf := new(bytes.Buffer)
 	config := &config.Config{
 		DirectoryPath: ptr(""), // disable file logging
-		Level:         ptr(level.WARN),
+		Level:         ptr(LogLevel.WARN),
 		ConsoleOut:    &config.ConsoleLogger{L: log.New(buf, "", 0)},
 	}
 	logInst, err := NewLogger(config, 255, 2)
@@ -114,7 +114,7 @@ func TestLoggerConfigUpdate(t *testing.T) {
 	buf := new(bytes.Buffer)
 	cfg := &config.Config{
 		DirectoryPath: ptr(""),
-		Level:         ptr(level.INFO),
+		Level:         ptr(LogLevel.INFO),
 		ConsoleOut:    &config.ConsoleLogger{L: log.New(buf, "", 0)},
 	}
 	logInst, err := NewLogger(cfg, 255, 2)

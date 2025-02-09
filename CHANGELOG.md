@@ -1,5 +1,11 @@
 # Changelog for "blog" project
 
+## [v3.0.1] - 2025-02-09
+
+### Fixed
+
+- **Level:** Exported the LogLevel as Level to allow for easier access.
+
 ## [v3.0.0] - 2025-02-09
 
 ### Changed

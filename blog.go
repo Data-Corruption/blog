@@ -62,7 +62,7 @@ import (
 	"time"
 
 	"github.com/Data-Corruption/blog/v3/internal/config"
-	"github.com/Data-Corruption/blog/v3/internal/level"
+	LogLevel "github.com/Data-Corruption/blog/v3/internal/level"
 	"github.com/Data-Corruption/blog/v3/internal/logger"
 	"github.com/Data-Corruption/blog/v3/internal/utils"
 )
@@ -90,7 +90,7 @@ var (
 //   - ErrInvalidPath if the directory path is invalid for any reason,
 func Init(
 	DirPath string,
-	Level level.Level,
+	Level Level,
 	IncludeLocation bool,
 	EnableConsole bool,
 ) error {
@@ -98,7 +98,7 @@ func Init(
 		return ErrAlreadyInitialized
 	}
 	pathCopy := DirPath
-	levelCopy := Level
+	levelCopy := LogLevel.LogLevel(Level)
 	location := utils.Ternary(IncludeLocation, 5, -1)
 	cout := utils.Ternary(EnableConsole, &config.ConsoleLogger{L: log.New(os.Stdout, "", 0)}, nil)
 	var err error
@@ -135,8 +135,9 @@ func Fatalf(exitCode int, timeout time.Duration, format string, args ...any) err
 }
 
 // SetLevel sets the log level.
-func SetLevel(level level.Level) error {
-	return a(func() { instance.UpdateConfig(config.Config{Level: &level}) })
+func SetLevel(level Level) error {
+	l_level := LogLevel.LogLevel(level)
+	return a(func() { instance.UpdateConfig(config.Config{Level: &l_level}) })
 }
 
 // SetConsole enables or disables console logging.
@@ -216,11 +217,11 @@ const (
 
 // String returns the string representation of a blog.Level
 func (l Level) String() string {
-	return level.Level(l).String()
+	return LogLevel.LogLevel(l).String()
 }
 
 // FromString sets a blog.Level from a case-insensitive string, returning ErrInvalidLogLevel if the string is invalid.
 func (l *Level) FromString(levelStr string) error {
-	ll := level.Level(*l)
+	ll := LogLevel.LogLevel(*l)
 	return ll.FromString(levelStr)
 }

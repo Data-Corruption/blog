@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/Data-Corruption/blog/v3/internal/config"
-	"github.com/Data-Corruption/blog/v3/internal/level"
+	LogLevel "github.com/Data-Corruption/blog/v3/internal/level"
 	"github.com/Data-Corruption/blog/v3/internal/utils"
 	"github.com/Data-Corruption/blog/v3/internal/utils/strutil"
 )
@@ -45,7 +45,7 @@ type Logger struct {
 
 // LogMessage represents a single log message.
 type LogMessage struct {
-	level     level.Level
+	level     LogLevel.LogLevel
 	exitCode  int // only used by FATAL messages
 	timestamp time.Time
 	location  string // e.g., "file.go:42"
@@ -151,19 +151,19 @@ func (l *Logger) UpdateConfig(cfg config.Config) {
 
 // Log message functions. These are the main interface for logging messages.
 
-func (l *Logger) Info(msg string)                   { l.qM(level.INFO, 0, "%s", msg) }
-func (l *Logger) Infof(format string, args ...any)  { l.qM(level.INFO, 0, format, args...) }
-func (l *Logger) Warn(msg string)                   { l.qM(level.WARN, 0, "%s", msg) }
-func (l *Logger) Warnf(format string, args ...any)  { l.qM(level.WARN, 0, format, args...) }
-func (l *Logger) Error(msg string)                  { l.qM(level.ERROR, 0, "%s", msg) }
-func (l *Logger) Errorf(format string, args ...any) { l.qM(level.ERROR, 0, format, args...) }
-func (l *Logger) Debug(msg string)                  { l.qM(level.DEBUG, 0, "%s", msg) }
-func (l *Logger) Debugf(format string, args ...any) { l.qM(level.DEBUG, 0, format, args...) }
+func (l *Logger) Info(msg string)                   { l.qM(LogLevel.INFO, 0, "%s", msg) }
+func (l *Logger) Infof(format string, args ...any)  { l.qM(LogLevel.INFO, 0, format, args...) }
+func (l *Logger) Warn(msg string)                   { l.qM(LogLevel.WARN, 0, "%s", msg) }
+func (l *Logger) Warnf(format string, args ...any)  { l.qM(LogLevel.WARN, 0, format, args...) }
+func (l *Logger) Error(msg string)                  { l.qM(LogLevel.ERROR, 0, "%s", msg) }
+func (l *Logger) Errorf(format string, args ...any) { l.qM(LogLevel.ERROR, 0, format, args...) }
+func (l *Logger) Debug(msg string)                  { l.qM(LogLevel.DEBUG, 0, "%s", msg) }
+func (l *Logger) Debugf(format string, args ...any) { l.qM(LogLevel.DEBUG, 0, format, args...) }
 
 // Fatal attempts to log a message and exits the program. It exits with the given exit code either when the message is
 // logged or the timeout duration is reached. A timeout of 0 means block indefinitely.
 func (l *Logger) Fatal(exitCode int, timeout time.Duration, msg string) {
-	l.qM(level.FATAL, exitCode, "%s", msg)
+	l.qM(LogLevel.FATAL, exitCode, "%s", msg)
 	time.Sleep(timeout)
 	fmt.Printf("Fatal message failed to log in time: %s\n", msg)
 	os.Exit(exitCode)
@@ -177,7 +177,7 @@ func (l *Logger) Fatalf(exitCode int, timeout time.Duration, format string, args
 // Internal functions
 
 // qM is a helper function to create and enqueue a log message.
-func (l *Logger) qM(lvl level.Level, exitCode int, format string, args ...any) {
+func (l *Logger) qM(lvl LogLevel.LogLevel, exitCode int, format string, args ...any) {
 	m := LogMessage{
 		level:     lvl,
 		exitCode:  exitCode,
@@ -186,7 +186,7 @@ func (l *Logger) qM(lvl level.Level, exitCode int, format string, args ...any) {
 		content:   fmt.Sprintf(format, args...),
 	}
 	if l.locationSkip != -1 {
-		if (lvl == level.FATAL) || (lvl == level.ERROR) || (lvl == level.DEBUG) {
+		if (lvl == LogLevel.FATAL) || (lvl == LogLevel.ERROR) || (lvl == LogLevel.DEBUG) {
 			if _, file, line, ok := runtime.Caller(l.locationSkip); ok {
 				m.location = fmt.Sprintf("%s:%d", filepath.Base(file), line)
 			}
@@ -197,7 +197,7 @@ func (l *Logger) qM(lvl level.Level, exitCode int, format string, args ...any) {
 
 func (l *Logger) handleMessage(m LogMessage) {
 	// Check if the message should be logged given the current log level
-	if l.config.Level == nil || *l.config.Level == level.NONE {
+	if l.config.Level == nil || *l.config.Level == LogLevel.NONE {
 		return
 	}
 	if m.level > *l.config.Level {
@@ -223,7 +223,7 @@ func (l *Logger) handleMessage(m LogMessage) {
 	if l.config.ConsoleOut.L != nil {
 		l.config.ConsoleOut.L.Print(m.content)
 	}
-	if m.level == level.FATAL {
+	if m.level == LogLevel.FATAL {
 		l.flush()
 		os.Exit(m.exitCode)
 	}
