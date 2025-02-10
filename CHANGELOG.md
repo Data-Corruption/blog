@@ -1,5 +1,11 @@
 # Changelog for "blog" project
 
+## [v3.0.2] - 2025-02-10
+
+### Fixed
+
+- **FromString:** Fixed a bug where it always returned 0 regardless of the input.
+
 ## [v3.0.1] - 2025-02-09
 
 ### Fixed

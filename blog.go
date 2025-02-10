@@ -223,5 +223,9 @@ func (l Level) String() string {
 // FromString sets a blog.Level from a case-insensitive string, returning ErrInvalidLogLevel if the string is invalid.
 func (l *Level) FromString(levelStr string) error {
 	ll := LogLevel.LogLevel(*l)
-	return ll.FromString(levelStr)
+	if err := ll.FromString(levelStr); err != nil {
+		return ErrInvalidLogLevel
+	}
+	*l = Level(ll)
+	return nil
 }
